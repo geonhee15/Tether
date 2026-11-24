@@ -189,30 +189,37 @@ struct CreditFooter: View {
     }
 }
 
-/// App mark: two nodes joined by a tether.
+/// App mark, matching the app icon: an ivory tile with two nodes joined by a coral-to-amber tether.
+/// It keeps its own colours in every theme so the app is recognisable wherever it appears.
 struct TetherLogo: View {
     var size: CGFloat = 64
 
+    static let coral = Color(hex: "FF4F6E")
+    static let amber = Color(hex: "FF9A2E")
+
     var body: some View {
-        let colors = AppSettings.shared.skin.glow
+        let shape = RoundedRectangle(cornerRadius: size * 0.26, style: .continuous)
+        let tether = LinearGradient(colors: [Self.coral, Self.amber], startPoint: .bottomLeading, endPoint: .topTrailing)
         ZStack {
-            RoundedRectangle(cornerRadius: size * 0.26, style: .continuous)
-                .fill(LinearGradient(colors: [colors[0], colors[1]], startPoint: .topLeading, endPoint: .bottomTrailing))
-            RoundedRectangle(cornerRadius: size * 0.26, style: .continuous)
-                .fill(LinearGradient(colors: [.white.opacity(0.35), .clear], startPoint: .top, endPoint: .center))
+            shape.fill(LinearGradient(colors: [Color(hex: "FFFAF0"), Color(hex: "F1E3CC")], startPoint: .topLeading, endPoint: .bottomTrailing))
+            shape.fill(RadialGradient(colors: [Color(hex: "FFB86B").opacity(0.45), .clear], center: .bottomTrailing,
+                                      startRadius: 0, endRadius: size * 0.8))
+            shape.fill(LinearGradient(colors: [.white.opacity(0.55), .clear], startPoint: .top, endPoint: .center))
             TetherGlyph()
-                .stroke(.white, style: StrokeStyle(lineWidth: size * 0.065, lineCap: .round))
+                .stroke(tether, style: StrokeStyle(lineWidth: size * 0.065, lineCap: .round))
                 .padding(size * 0.24)
             GeometryReader { geo in
                 let inset = size * 0.24, d = size * 0.17
-                Circle().fill(.white).frame(width: d, height: d)
+                Circle().fill(Self.coral).frame(width: d, height: d)
                     .position(x: inset, y: geo.size.height - inset)
-                Circle().fill(.white).frame(width: d, height: d)
+                Circle().fill(Self.amber).frame(width: d, height: d)
                     .position(x: geo.size.width - inset, y: inset)
             }
+            shape.strokeBorder(.black.opacity(0.10), lineWidth: 1)
         }
         .frame(width: size, height: size)
-        .shadow(color: colors[0].opacity(0.35), radius: size * 0.18, y: size * 0.08)
+        .shadow(color: Color(hex: "FF7A4D").opacity(0.30), radius: size * 0.18, y: size * 0.08)
+        .accessibilityHidden(true)
     }
 }
 
