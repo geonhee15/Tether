@@ -30,6 +30,7 @@ shot() {  # shot <name> <scene> [ENV=value ...]
 
 echo "▶ capturing"
 shot login            login    TETHER_LANG=ko TETHER_APPEARANCE=dark
+shot password-reset   reset    TETHER_LANG=ko TETHER_APPEARANCE=light
 shot space-setup      setup    TETHER_LANG=ko TETHER_APPEARANCE=light
 shot home             home     TETHER_LANG=ko TETHER_APPEARANCE=light
 shot node             node0    TETHER_LANG=ko TETHER_APPEARANCE=light

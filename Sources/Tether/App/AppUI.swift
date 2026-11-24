@@ -20,6 +20,8 @@ final class AppUI {
     var flashBlock: UUID?
     /// Forces the insert menu open (used for screenshots).
     var demoInsertMenu = false
+    /// Opens the login screen on "reset password" (used for screenshots).
+    var demoResetPassword = false
 
     func present(_ overlay: Overlay) {
         withAnimation(Motion.spring) { self.overlay = overlay }

@@ -36,6 +36,9 @@ enum Demo {
         switch scene {
         case "login":
             for id in store.session.loggedIn { store.logOut(id) }
+        case "reset":
+            for id in store.session.loggedIn { store.logOut(id) }
+            ui.demoResetPassword = true
         case "setup":
             try? store.signUp(username: "atelier", password: "demo", email: "")
         case "home":
@@ -170,6 +173,15 @@ enum Demo {
         }
         attempt("create account #\(AppInfo.maxAccounts + 1)") { try store.signUp(username: "overflow", password: "demo", email: "") }
         print("authtest: accounts =", store.accounts.count, "signed in =", store.session.loggedIn.count)
+        if let studio = store.account(named: "studio") {
+            let nodesBefore = store.spaces[studio.id]?.nodes.count ?? -1
+            attempt("reset password") { try store.setPassword(for: studio.id, to: "fresh-pass") }
+            attempt("reset to empty password") { try store.setPassword(for: studio.id, to: "") }
+            store.logOut(studio.id)
+            attempt("old password after reset") { try store.signIn(username: "studio", password: "demo") }
+            attempt("new password after reset") { try store.signIn(username: "studio", password: "fresh-pass") }
+            print("authtest: nodes kept across reset =", store.spaces[studio.id]?.nodes.count == nodesBefore, "· Mac owner check available =", MacAuth.isAvailable)
+        }
         let stored = (try? String(contentsOf: store.dataDir.appendingPathComponent("accounts.json"), encoding: .utf8)) ?? ""
         print("authtest: plain password on disk =", stored.contains("\"demo\""))
     }

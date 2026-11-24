@@ -40,7 +40,8 @@ preferences suite. Keep docs about what the app does, not about how any one pers
 ## Checking without a human
 
 `TETHER_SCENE=selftest` types, styles, inserts at the caret and merges; `TETHER_SCENE=authtest`
-exercises sign-in, duplicates and the 10-account limit. Both print to stdout:
+exercises sign-in, duplicates, the 10-account limit and password replacement (the macOS owner
+prompt in `MacAuth` cannot be driven from a script). Both print to stdout:
 
 ```bash
 D=$(mktemp -d); TETHER_DATA_DIR=$D TETHER_DEMO=1 TETHER_SCENE=selftest \

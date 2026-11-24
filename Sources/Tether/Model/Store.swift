@@ -3,7 +3,7 @@ import Foundation
 import Observation
 
 enum AuthError: Error {
-    case emptyFields, usernameTaken, unknownUser, wrongPassword, limitReached
+    case emptyFields, usernameTaken, unknownUser, wrongPassword, limitReached, passwordMismatch
 
     @MainActor var message: String {
         switch self {
@@ -11,6 +11,7 @@ enum AuthError: Error {
         case .usernameTaken: return L("That username is already in use.", "이미 사용 중인 유저네임이에요.")
         case .unknownUser: return L("No account with that username.", "해당 유저네임의 계정이 없어요.")
         case .wrongPassword: return L("That password doesn't match.", "비밀번호가 일치하지 않아요.")
+        case .passwordMismatch: return L("The two passwords don't match.", "두 비밀번호가 서로 달라요.")
         case .limitReached: return L("You can keep up to \(AppInfo.maxAccounts) accounts.", "계정은 최대 \(AppInfo.maxAccounts)개까지 만들 수 있어요.")
         }
     }
@@ -104,6 +105,22 @@ final class Store {
             loadSpace(account.id)
         }
         session.active = account.id
+        persistAccounts()
+    }
+
+    func account(named username: String) -> Account? {
+        let name = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        return accounts.first { $0.username.caseInsensitiveCompare(name) == .orderedSame }
+    }
+
+    /// Replaces an account's password (fresh salt). Callers decide who is allowed to do this:
+    /// the signed-in owner, or someone who just proved they own this Mac.
+    func setPassword(for id: UUID, to password: String) throws {
+        guard !password.isEmpty else { throw AuthError.emptyFields }
+        guard let index = accounts.firstIndex(where: { $0.id == id }) else { throw AuthError.unknownUser }
+        let salt = Self.makeSalt()
+        accounts[index].passwordSalt = salt
+        accounts[index].passwordHash = Self.hash(password, salt: salt)
         persistAccounts()
     }
 

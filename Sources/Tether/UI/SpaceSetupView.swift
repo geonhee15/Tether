@@ -10,6 +10,11 @@ struct SpaceSetupView: View {
     @Environment(AppUI.self) private var ui
     @Environment(\.colorScheme) private var scheme
     @State private var appeared = false
+    @State private var changingPassword = false
+    @State private var newPassword = ""
+    @State private var newPasswordAgain = ""
+    @State private var passwordError: String?
+    @State private var passwordChanged = false
 
     var body: some View {
         @Bindable var space = space
@@ -98,6 +103,12 @@ struct SpaceSetupView: View {
                         withAnimation(Motion.spring) { store.logOut(space.id) }
                     }
                     .buttonStyle(SoftButtonStyle())
+                    Button(passwordChanged ? L("Password Changed", "비밀번호 변경됨") : L("Change Password…", "비밀번호 변경…")) {
+                        passwordChanged = false
+                        changingPassword = true
+                    }
+                    .buttonStyle(SoftButtonStyle(tint: passwordChanged ? Theme.positive : nil))
+                    .popover(isPresented: $changingPassword, arrowEdge: .top) { passwordForm }
                     Button(L("Delete Account…", "계정 삭제…")) { confirmDeleteAccount() }
                         .buttonStyle(SoftButtonStyle(tint: Theme.negative))
                 } else {
@@ -142,6 +153,42 @@ struct SpaceSetupView: View {
                 }
             }
             content()
+        }
+    }
+
+    /// You are already signed in here, so a new password is all it takes.
+    private var passwordForm: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(L("New password for “\(store.account(space.id)?.username ?? "")”", "“\(store.account(space.id)?.username ?? "")” 계정의 새 비밀번호"))
+                .font(.app(12, .semibold))
+            GlassField(symbol: "lock", placeholder: L("New password", "새 비밀번호"), text: $newPassword, secure: true, onSubmit: savePassword)
+            GlassField(symbol: "lock.rotation", placeholder: L("New password again", "새 비밀번호 다시 입력"), text: $newPasswordAgain, secure: true, onSubmit: savePassword)
+            if let passwordError {
+                Text(passwordError).font(.app(11.5)).foregroundStyle(Theme.negative)
+            }
+            Button(action: savePassword) {
+                Text(L("Save", "저장")).frame(maxWidth: .infinity)
+            }
+            .buttonStyle(PrimaryButtonStyle())
+        }
+        .padding(16)
+        .frame(width: 280)
+    }
+
+    private func savePassword() {
+        guard !newPassword.isEmpty else { passwordError = AuthError.emptyFields.message; return }
+        guard newPassword == newPasswordAgain else { passwordError = AuthError.passwordMismatch.message; return }
+        do {
+            try store.setPassword(for: space.id, to: newPassword)
+            newPassword = ""
+            newPasswordAgain = ""
+            passwordError = nil
+            changingPassword = false
+            withAnimation(Motion.snappy) { passwordChanged = true }
+        } catch let failure as AuthError {
+            passwordError = failure.message
+        } catch {
+            passwordError = error.localizedDescription
         }
     }
 
