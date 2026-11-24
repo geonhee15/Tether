@@ -23,6 +23,43 @@ final class AppUI {
     /// Opens the login screen on "reset password" (used for screenshots).
     var demoResetPassword = false
 
+    /// A short confirmation shown in the footer ("Saved", "Undone"…), cleared on its own.
+    var status: Status?
+    /// When keep-awake mode was switched on; nil while it is off.
+    var awakeSince: Date?
+
+    struct Status: Equatable {
+        var text: String
+        var symbol: String
+        var stamp = UUID()
+    }
+
+    var isAwake: Bool { awakeSince != nil }
+
+    func flash(_ text: String, symbol: String) {
+        let status = Status(text: text, symbol: symbol)
+        withAnimation(Motion.snappy) { self.status = status }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) { [weak self] in
+            guard let self, self.status?.stamp == status.stamp else { return }
+            withAnimation(Motion.smooth) { self.status = nil }
+        }
+    }
+
+    /// Keep-awake mode: the Mac and display stay on and the window shows only a calm screen.
+    func setAwake(_ on: Bool) {
+        guard on != isAwake else { return }
+        if on {
+            guard SleepGuard.shared.start() else {
+                flash(L("Couldn't keep the Mac awake", "절전 방지를 켤 수 없어요"), symbol: "exclamationmark.triangle.fill")
+                return
+            }
+            withAnimation(Motion.gentle) { awakeSince = Date() }
+        } else {
+            SleepGuard.shared.stop()
+            withAnimation(Motion.smooth) { awakeSince = nil }
+        }
+    }
+
     func present(_ overlay: Overlay) {
         withAnimation(Motion.spring) { self.overlay = overlay }
     }

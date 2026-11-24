@@ -24,6 +24,9 @@ macOS notes app (SwiftUI + AppKit), built with `swiftc` via `./build.sh`. There 
 - **Links**: reference links live in `SpaceModel.links`; value links are `ActionItem.effects` and are
   applied on read (`SpaceModel.contributions()`), never written into the target.
 - **Charts**: colours come from `Theme.chartPalette` slots stored on each point — never by rank.
+- **Undo**: there is one history per Space (`SpaceHistory`, whole-content snapshots fed by the same
+  observation that drives autosave). Anything that edits the observed model is undoable for free —
+  don't add `NSUndoManager` registrations, and keep `allowsUndo` off on the text views.
 
 ## Credits
 
@@ -41,7 +44,8 @@ preferences suite. Keep docs about what the app does, not about how any one pers
 
 `TETHER_SCENE=selftest` types, styles, inserts at the caret and merges; `TETHER_SCENE=authtest`
 exercises sign-in, duplicates, the 10-account limit and password replacement (the macOS owner
-prompt in `MacAuth` cannot be driven from a script). Both print to stdout:
+prompt in `MacAuth` cannot be driven from a script); `TETHER_SCENE=undotest` makes five edits and
+undoes/redoes them; `TETHER_SCENE=awaketest` checks the power assertion with `pmset`. All print to stdout:
 
 ```bash
 D=$(mktemp -d); TETHER_DATA_DIR=$D TETHER_DEMO=1 TETHER_SCENE=selftest \

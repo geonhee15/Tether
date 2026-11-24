@@ -42,6 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
     func applicationWillTerminate(_ notification: Notification) {
+        SleepGuard.shared.stop()
         store.flushAll()
     }
 
@@ -67,6 +68,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let file = NSMenu(title: L("File", "파일"))
         file.addItem(item(L("New Node", "새 노드"), #selector(newNode), "t"))
         file.addItem(item(L("Close Node", "노드 닫기"), #selector(closeNode), "w"))
+        file.addItem(item(L("Save", "저장"), #selector(saveNow), "s"))
         file.addItem(.separator())
         let home = item(L("Space Home", "Space 홈"), #selector(goHome), "h")
         home.keyEquivalentModifierMask = [.command, .shift]
@@ -74,8 +76,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         main.addItem(submenu(file.title, file))
 
         let edit = NSMenu(title: L("Edit", "편집"))
-        edit.addItem(NSMenuItem(title: L("Undo", "실행 취소"), action: Selector(("undo:")), keyEquivalent: "z"))
-        let redo = NSMenuItem(title: L("Redo", "실행 복귀"), action: Selector(("redo:")), keyEquivalent: "z")
+        edit.addItem(item(L("Undo", "실행 취소"), #selector(undoEdit(_:)), "z"))
+        let redo = item(L("Redo", "실행 복귀"), #selector(redoEdit(_:)), "z")
         redo.keyEquivalentModifierMask = [.command, .shift]
         edit.addItem(redo)
         edit.addItem(.separator())
@@ -84,6 +86,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         edit.addItem(NSMenuItem(title: L("Paste", "붙여넣기"), action: #selector(NSText.paste(_:)), keyEquivalent: "v"))
         edit.addItem(NSMenuItem(title: L("Select All", "전체 선택"), action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"))
         main.addItem(submenu(edit.title, edit))
+
+        let view = NSMenu(title: L("View", "보기"))
+        let awake = item(L("Keep Awake Mode", "절전 방지 모드"), #selector(toggleAwake), "k")
+        awake.keyEquivalentModifierMask = [.command, .shift]
+        view.addItem(awake)
+        main.addItem(submenu(view.title, view))
 
         let windowMenu = NSMenu(title: L("Window", "윈도우"))
         windowMenu.addItem(NSMenuItem(title: L("Minimize", "최소화"), action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m"))
@@ -109,12 +117,55 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func showAbout() { ui.showSettings(.about) }
     @objc private func showSettings() { ui.showSettings(ui.settingsTab) }
 
+    /// The Space currently on screen, when edits to it can be made (not in a sheet, not asleep).
+    private var editableSpace: SpaceModel? {
+        guard ui.overlay == nil, !ui.isAwake, let space = store.activeSpace, space.info.isConfigured else { return nil }
+        return space
+    }
+
+    @objc private func saveNow() {
+        guard let space = store.activeSpace else { return }
+        store.save(space)
+        ui.flash(L("Saved", "저장했어요"), symbol: "checkmark.circle.fill")
+    }
+
+    /// ⌘Z steps the whole Space back: typing, formatting, objects, links, deleted nodes.
+    /// In a sheet (login, settings) it falls back to the text field's own undo.
+    @objc private func undoEdit(_ sender: Any?) {
+        guard let space = editableSpace else {
+            NSApp.sendAction(Selector(("undo:")), to: nil, from: sender)
+            return
+        }
+        if store.undo(in: space) {
+            ui.flash(L("Undone", "실행 취소됨"), symbol: "arrow.uturn.backward.circle.fill")
+        } else {
+            NSSound.beep()
+        }
+    }
+
+    @objc private func redoEdit(_ sender: Any?) {
+        guard let space = editableSpace else {
+            NSApp.sendAction(Selector(("redo:")), to: nil, from: sender)
+            return
+        }
+        if store.redo(in: space) {
+            ui.flash(L("Redone", "다시 실행됨"), symbol: "arrow.uturn.forward.circle.fill")
+        } else {
+            NSSound.beep()
+        }
+    }
+
+    @objc private func toggleAwake() {
+        ui.setAwake(!ui.isAwake)
+    }
+
     @objc private func newNode() {
-        guard let space = store.activeSpace, space.info.isConfigured else { return }
+        guard !ui.isAwake, let space = store.activeSpace, space.info.isConfigured else { return }
         withAnimation(Motion.spring) { _ = space.addNode() }
     }
 
     @objc private func closeNode() {
+        if ui.isAwake { return }
         if ui.overlay != nil { ui.dismiss(); return }
         if let space = store.activeSpace, let active = space.activeTab {
             withAnimation(Motion.spring) { space.closeTab(active) }

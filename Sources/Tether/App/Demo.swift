@@ -60,6 +60,13 @@ enum Demo {
             selfTest(store: store, editor: editor)
         case "authtest":
             authTest(store: store)
+        case "undotest":
+            undoTest(store: store, editor: editor)
+        case "awake":
+            studio?.activeTab = nil
+            ui.setAwake(true)
+        case "awaketest":
+            awakeTest(ui: ui)
         default:
             break
         }
@@ -152,6 +159,92 @@ enum Demo {
                 space.deleteBlock(table.id, in: node)
                 print("selftest: after delete blocks =", node.blocks.map { $0.data.kind.rawValue }, "text =", node.plainText.replacingOccurrences(of: "\n", with: "⏎"))
             }
+        }
+    }
+
+    /// Makes five separate edits (new node, typing twice, inserting a table, filling a cell), then
+    /// undoes and redoes them and checks a deleted node comes back. Prints the state at each step.
+    private static func undoTest(store: Store, editor: EditorController) {
+        guard let space = store.loggedInSpaces.first else { return }
+        store.switchTo(space.id)
+        let before = space.nodes.count
+        var node: NodeModel?
+        func after(_ seconds: Double, _ work: @escaping () -> Void) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
+        }
+        func state(_ label: String) {
+            let current = node.flatMap { space.node($0.id) }
+            let kinds = current?.blocks.map { $0.data.kind.rawValue }.joined(separator: ",") ?? "-"
+            let text = current?.plainText.replacingOccurrences(of: "\n", with: "⏎") ?? "-"
+            let cell = current?.blocks.first { $0.data.kind == .table }?.data.table?.rows[0][0].text ?? "-"
+            print("undotest: \(label) → nodes \(space.nodes.count - before) · blocks [\(kinds)] · text “\(text)” · cell “\(cell)”")
+        }
+        after(0.5) {
+            node = space.addNode()
+            node?.title = "Undo test"
+        }
+        after(1.3) {
+            guard let node else { return }
+            editor.focus(node.blocks[0].id, atEnd: true)
+            editor.activeTextView?.insertText("Hello", replacementRange: NSRange(location: 0, length: 0))
+        }
+        after(2.1) { editor.activeTextView?.insertText(" world", replacementRange: NSRange(location: 5, length: 0)) }
+        after(2.9) {
+            guard let node else { return }
+            editor.insert(Block(kind: .table, table: .blank(rows: 2, columns: 2)), into: node)
+        }
+        after(3.7) {
+            node?.blocks.first { $0.data.kind == .table }?.data.table?.rows[0][0].text = "42"
+        }
+        after(4.5) {
+            state("after 5 edits")
+            for step in 1...5 {
+                let ok = store.undo(in: space)
+                state("undo \(step) (\(ok ? "ok" : "nothing"))")
+            }
+            print("undotest: undo past the start →", store.undo(in: space) ? "changed something (wrong)" : "nothing left (right)")
+            for step in 1...5 {
+                let ok = store.redo(in: space)
+                state("redo \(step) (\(ok ? "ok" : "nothing"))")
+            }
+        }
+        after(5.3) {
+            guard let node else { return }
+            space.deleteNode(node.id)
+        }
+        after(6.1) {
+            state("node deleted")
+            _ = store.undo(in: space)
+            state("undo delete")
+            print("undotest: restored node is open =", space.activeTab == node?.id, "· saved-file check follows")
+        }
+        after(7.2) {
+            let saved = (try? Data(contentsOf: store.dataDir.appendingPathComponent("spaces/\(space.id.uuidString).json")))
+                .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+            let titles = (saved?["nodes"] as? [[String: Any]])?.compactMap { $0["title"] as? String } ?? []
+            print("undotest: restored node saved to disk =", titles.contains("Undo test"))
+        }
+    }
+
+    /// Turns keep-awake mode on and off and asks macOS whether the power assertion is really held.
+    private static func awakeTest(ui: AppUI) {
+        func held() -> Bool {
+            let task = Process()
+            task.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
+            task.arguments = ["-g", "assertions"]
+            let pipe = Pipe()
+            task.standardOutput = pipe
+            try? task.run()
+            task.waitUntilExit()
+            let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            return output.contains("Tether keep-awake mode")
+        }
+        print("awaketest: before =", held())
+        ui.setAwake(true)
+        print("awaketest: mode on =", ui.isAwake, "· assertion held =", held())
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            ui.setAwake(false)
+            print("awaketest: mode off =", !ui.isAwake, "· assertion released =", !held())
         }
     }
 
@@ -310,5 +403,6 @@ enum Demo {
         ]
         store.switchTo(studio.id)
         store.flushAll()
+        for space in spaces { store.resetHistory(for: space) }
     }
 }

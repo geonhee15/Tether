@@ -29,6 +29,7 @@ final class Store {
     var lastSaved: Date?
 
     @ObservationIgnored private var saveTimers: [UUID: Timer] = [:]
+    @ObservationIgnored private var histories: [UUID: SpaceHistory] = [:]
     @ObservationIgnored private var signatures: [UUID: Int] = [:]
 
     private static let encoder: JSONEncoder = {
@@ -92,7 +93,9 @@ final class Store {
         session.loggedIn.append(account.id)
         session.active = account.id
         persistAccounts()
+        histories[account.id] = SpaceHistory(space)
         save(space)
+        watch(space)
     }
 
     func signIn(username: String, password: String) throws {
@@ -133,6 +136,7 @@ final class Store {
     func logOut(_ id: UUID) {
         if let space = spaces[id] { flush(space) }
         spaces[id] = nil
+        histories[id] = nil
         session.loggedIn.removeAll { $0 == id }
         if session.active == id { session.active = session.loggedIn.first }
         persistAccounts()
@@ -143,6 +147,7 @@ final class Store {
         saveTimers[id]?.invalidate()
         saveTimers[id] = nil
         spaces[id] = nil
+        histories[id] = nil
         session.loggedIn.removeAll { $0 == id }
         if session.active == id { session.active = session.loggedIn.first }
         accounts.removeAll { $0.id == id }
@@ -193,19 +198,41 @@ final class Store {
         let space = SpaceModel(id: id, snapshot: snapshot)
         spaces[id] = space
         for node in space.nodes { signatures[node.id] = signature(of: node) }
+        histories[id] = SpaceHistory(space)
         watch(space)
     }
 
-    /// Registers for the next change anywhere in the Space.
+    /// Registers for the next change anywhere in the Space. Observation fires once per
+    /// registration, so the handler re-registers and every later change is seen too.
     private func watch(_ space: SpaceModel) {
         withObservationTracking {
             _ = space.snapshot()
         } onChange: { [weak self, weak space] in
             DispatchQueue.main.async {
-                guard let self, let space else { return }
+                guard let self, let space, self.spaces[space.id] === space else { return }
+                self.watch(space)
                 self.scheduleSave(space)
+                self.histories[space.id]?.noteChange(in: space)
             }
         }
+    }
+
+    // MARK: Undo
+
+    /// Steps the Space back by one edit. False when there is nothing to undo.
+    @discardableResult
+    func undo(in space: SpaceModel) -> Bool {
+        histories[space.id]?.undo(space) ?? false
+    }
+
+    @discardableResult
+    func redo(in space: SpaceModel) -> Bool {
+        histories[space.id]?.redo(space) ?? false
+    }
+
+    /// Starts the Space's undo history afresh from its current state.
+    func resetHistory(for space: SpaceModel) {
+        histories[space.id]?.reset(space)
     }
 
     private func scheduleSave(_ space: SpaceModel) {
@@ -237,7 +264,6 @@ final class Store {
         write(space.snapshot(), to: spaceURL(space.id))
         persistAccounts()
         lastSaved = Date()
-        watch(space)
     }
 
     private func flush(_ space: SpaceModel) {

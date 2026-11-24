@@ -41,7 +41,7 @@ struct SpaceSnapshot: Codable {
 
 // MARK: Nodes & blocks
 
-struct NodeDoc: Codable, Identifiable {
+struct NodeDoc: Codable, Identifiable, Equatable {
     var id = UUID()
     var title: String = ""
     var symbol: String = "doc.text"

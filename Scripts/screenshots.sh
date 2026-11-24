@@ -22,7 +22,7 @@ shot() {  # shot <name> <scene> [ENV=value ...]
         TETHER_SNAPSHOT="$OUT/$name.png" "$@" "$APP" >/dev/null 2>&1
     rm -rf "$data"
     size=$(stat -f%z "$OUT/$name.png" 2>/dev/null || echo 0)
-    (( size > 300000 )) && break
+    (( size > 120000 )) && break
   done
   /usr/bin/sips -Z 1680 "$OUT/$name.png" >/dev/null 2>&1
   echo "  $name.png"
@@ -40,6 +40,7 @@ shot analytics        node1    TETHER_LANG=ko TETHER_APPEARANCE=dark
 shot analytics-actions node1   TETHER_LANG=ko TETHER_APPEARANCE=light TETHER_SCROLL=640
 shot linked-chart     node2    TETHER_LANG=ko TETHER_APPEARANCE=dark
 shot chart-line       node2    TETHER_LANG=en TETHER_APPEARANCE=light TETHER_SCROLL=600
+shot keep-awake       awake    TETHER_LANG=ko TETHER_APPEARANCE=dark TETHER_SNAPSHOT_DELAY=3
 shot settings         settings TETHER_LANG=ko TETHER_APPEARANCE=light TETHER_SETTINGS_TAB=appearance
 shot about            settings TETHER_LANG=ko TETHER_APPEARANCE=dark TETHER_SETTINGS_TAB=about
 shot theme-sunset     home     TETHER_LANG=en TETHER_APPEARANCE=dark TETHER_SKIN=sunset

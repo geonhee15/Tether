@@ -25,6 +25,12 @@ struct RootView: View {
             }
 
             overlayLayer
+
+            if let since = ui.awakeSince {
+                AwakeView(since: since)
+                    .zIndex(20)
+                    .transition(.opacity)
+            }
         }
         .ignoresSafeArea()
         .font(.app(13))
@@ -254,6 +260,9 @@ struct SpaceRail: View {
                 }
             }
             Spacer(minLength: 8)
+            IconButton(symbol: "cup.and.saucer", size: 14, side: 38, help: L("Keep awake mode  ⇧⌘K", "절전 방지 모드  ⇧⌘K")) {
+                ui.setAwake(true)
+            }
             IconButton(symbol: "gearshape", size: 15, side: 38, help: L("Settings  ⌘,", "설정  ⌘,")) {
                 ui.showSettings(ui.settingsTab)
             }
@@ -302,6 +311,7 @@ struct SpaceRail: View {
 struct StatusFooter: View {
     let space: SpaceModel
     @Environment(Store.self) private var store
+    @Environment(AppUI.self) private var ui
 
     var body: some View {
         HStack(spacing: 10) {
@@ -310,7 +320,14 @@ struct StatusFooter: View {
             } else {
                 Label(L("\(space.nodes.count) nodes", "노드 \(space.nodes.count)개"), systemImage: "square.stack.3d.up")
             }
-            if let saved = store.lastSaved {
+            if let status = ui.status {
+                HStack(spacing: 4) {
+                    Image(systemName: status.symbol).foregroundStyle(Theme.accent)
+                    Text(status.text).foregroundStyle(.primary)
+                }
+                .id(status.stamp)
+                .transition(.opacity.combined(with: .offset(y: 4)))
+            } else if let saved = store.lastSaved {
                 HStack(spacing: 4) {
                     Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.positive.opacity(0.85))
                     Text(L("Saved ", "저장됨 ") + formatDate(saved, date: .omitted, time: .shortened))

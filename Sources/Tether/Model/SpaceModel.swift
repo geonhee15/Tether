@@ -82,6 +82,27 @@ final class NodeModel: Identifiable {
         if blocks.isEmpty { blocks = [BlockModel(Block(kind: .text))] }
     }
 
+    /// Brings this node in line with a saved state, reusing the live blocks so views keep their place.
+    func apply(_ doc: NodeDoc) {
+        if title != doc.title { title = doc.title }
+        if symbol != doc.symbol { symbol = doc.symbol }
+        let existing = Dictionary(uniqueKeysWithValues: blocks.map { ($0.id, $0) })
+        var result: [BlockModel] = []
+        for data in doc.blocks {
+            if let block = existing[data.id] {
+                if block.data != data {
+                    block.data = data
+                    block.revision += 1   // tells a text view to reload what it shows
+                }
+                result.append(block)
+            } else {
+                result.append(BlockModel(data))
+            }
+        }
+        if result.isEmpty { result = [BlockModel(Block(kind: .text))] }
+        if result.map(\.id) != blocks.map(\.id) { blocks = result }
+    }
+
     func moveBlock(_ id: UUID, by offset: Int) {
         guard let index = blocks.firstIndex(where: { $0.id == id }) else { return }
         // Skip over the neighbouring text so an object trades places with the next object-or-text unit.
@@ -135,6 +156,31 @@ final class SpaceModel: Identifiable {
 
     func snapshot() -> SpaceSnapshot {
         SpaceSnapshot(info: info, nodes: nodes.map(\.snapshot), links: links, openTabs: openTabs, activeTab: activeTab)
+    }
+
+    /// Replaces settings, nodes and links with a saved state (Undo / Redo). Live node and block
+    /// objects are reused wherever they still exist, so the interface updates instead of rebuilding.
+    func apply(_ content: SpaceContent) {
+        var restoredInfo = content.info
+        restoredInfo.isConfigured = info.isConfigured
+        if info != restoredInfo { info = restoredInfo }
+        let existing = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0) })
+        var result: [NodeModel] = []
+        for doc in content.nodes {
+            if let node = existing[doc.id] {
+                node.apply(doc)
+                result.append(node)
+            } else {
+                var revived = doc
+                revived.updatedAt = Date()
+                result.append(NodeModel(revived))
+            }
+        }
+        if result.map(\.id) != nodes.map(\.id) { nodes = result }
+        if links != content.links { links = content.links }
+        let known = Set(result.map(\.id))
+        if openTabs.contains(where: { !known.contains($0) }) { openTabs = openTabs.filter(known.contains) }
+        if let active = activeTab, !known.contains(active) { activeTab = openTabs.last }
     }
 
     var color: Color { Theme.spaceColor(info.colorIndex) }

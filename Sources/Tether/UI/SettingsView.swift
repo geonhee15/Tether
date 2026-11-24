@@ -124,6 +124,12 @@ struct SettingsView: View {
                 rowDivider
                 shortcut(L("Space home", "Space 홈"), "⇧⌘H")
                 rowDivider
+                shortcut(L("Undo · Redo (any edit in the Space)", "실행 취소 · 다시 실행 (Space의 모든 편집)"), "⌘Z  ⇧⌘Z")
+                rowDivider
+                shortcut(L("Save now", "지금 저장"), "⌘S")
+                rowDivider
+                shortcut(L("Keep awake mode", "절전 방지 모드"), "⇧⌘K")
+                rowDivider
                 shortcut(L("Bold · Italic · Underline", "굵게 · 기울임 · 밑줄"), "⌘B  ⌘I  ⌘U")
                 rowDivider
                 shortcut(L("Strikethrough · Clear formatting", "취소선 · 서식 지우기"), "⇧⌘X  ⇧⌘\\")

@@ -538,16 +538,30 @@ private struct TextBlockRepresentable: NSViewRepresentable {
             loadedRevision = parent.revision
             loadedStamp = parent.stamp
             let selection = textView.selectedRange()
+            let previous = textView.string as NSString
             let text = TextCodec.decode(parent.block.data.runs ?? [])
             textView.textStorage?.setAttributedString(text)
             let length = text.length
+            // When the words themselves changed underneath (Undo / Redo), leave the caret at the end
+            // of what changed; otherwise keep it where it was.
+            var caret = min(selection.location, length)
+            let current = text.string as NSString
+            if previous.length > 0, !previous.isEqual(to: current as String) {
+                let shared = min(previous.length, current.length)
+                var prefix = 0
+                while prefix < shared, previous.character(at: prefix) == current.character(at: prefix) { prefix += 1 }
+                var suffix = 0
+                while suffix < shared - prefix,
+                      previous.character(at: previous.length - 1 - suffix) == current.character(at: current.length - 1 - suffix) { suffix += 1 }
+                caret = max(prefix, current.length - suffix)
+            }
             if length > 0 {
-                textView.typingAttributes = text.attributes(at: min(selection.location, length) > 0 ? min(selection.location, length) - 1 : 0, effectiveRange: nil)
+                textView.typingAttributes = text.attributes(at: caret > 0 ? caret - 1 : 0, effectiveRange: nil)
             } else {
                 textView.typingAttributes = TextCodec.attributes(RunStyle())
             }
-            textView.setSelectedRange(NSRange(location: min(selection.location, length), length: 0))
-            textView.undoManager?.removeAllActions()
+            textView.setSelectedRange(NSRange(location: caret, length: 0))
+            textView.needsDisplay = true
             reportHeight()
         }
     }
@@ -560,7 +574,8 @@ private struct TextBlockRepresentable: NSViewRepresentable {
         textView.controller = editor
         textView.delegate = context.coordinator
         textView.isRichText = true
-        textView.allowsUndo = true
+        // Undo is kept for the whole Space (SpaceHistory), so typing, objects and links share one ⌘Z.
+        textView.allowsUndo = false
         textView.usesFontPanel = false
         textView.usesFindBar = false
         textView.importsGraphics = false
