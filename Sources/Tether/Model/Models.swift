@@ -48,6 +48,62 @@ struct NodeDoc: Codable, Identifiable, Equatable {
     var createdAt = Date()
     var updatedAt = Date()
     var blocks: [Block] = [Block(kind: .text)]
+    /// Set when this node shows a file instead of a written page.
+    var file: FileAttachment?
+}
+
+/// A file kept inside the Space. The bytes are copied into the Space's own folder, so the node
+/// keeps working if the original is moved or deleted.
+struct FileAttachment: Codable, Equatable {
+    /// Name of the copy on disk (`<uuid>.<extension>`).
+    var storedName: String
+    /// The file's name when it was added, extension included.
+    var originalName: String
+    var byteCount: Int
+    var addedAt = Date()
+
+    var fileExtension: String { (originalName as NSString).pathExtension.lowercased() }
+
+    enum Category { case pdf, image, video, audio, text, code, spreadsheet, presentation, document, archive, other }
+
+    var category: Category {
+        switch fileExtension {
+        case "pdf": return .pdf
+        case "png", "jpg", "jpeg", "heic", "gif", "tiff", "tif", "webp", "bmp", "svg", "psd": return .image
+        case "mp4", "mov", "m4v", "avi", "mkv", "webm": return .video
+        case "mp3", "m4a", "wav", "aac", "flac", "aiff", "ogg": return .audio
+        case "txt", "md", "markdown", "rtf", "log": return .text
+        case "swift", "py", "js", "ts", "json", "html", "css", "c", "h", "cpp", "java", "kt", "rs", "go", "rb", "sh", "yml", "yaml", "xml", "sql":
+            return .code
+        case "xlsx", "xls", "numbers", "csv", "tsv": return .spreadsheet
+        case "pptx", "ppt", "key": return .presentation
+        case "docx", "doc", "pages", "hwp", "hwpx", "odt": return .document
+        case "zip", "tar", "gz", "7z", "rar", "dmg": return .archive
+        default: return .other
+        }
+    }
+
+    var symbol: String {
+        switch category {
+        case .pdf: return "doc.richtext"
+        case .image: return "photo"
+        case .video: return "film"
+        case .audio: return "waveform"
+        case .text: return "doc.plaintext"
+        case .code: return "chevron.left.forwardslash.chevron.right"
+        case .spreadsheet: return "tablecells"
+        case .presentation: return "rectangle.on.rectangle"
+        case .document: return "doc.text"
+        case .archive: return "doc.zipper"
+        case .other: return "doc"
+        }
+    }
+
+    /// "PDF · 1.2 MB"
+    var summary: String {
+        let kind = fileExtension.isEmpty ? "FILE" : fileExtension.uppercased()
+        return kind + " · " + ByteCountFormatter.string(fromByteCount: Int64(byteCount), countStyle: .file)
+    }
 }
 
 /// One piece of a node: a run of rich text, or an inserted object.

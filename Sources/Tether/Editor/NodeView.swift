@@ -48,12 +48,7 @@ struct NodeView: View {
                 .padding(.top, 14)
                 .padding(.horizontal, 16)
         }
-        .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Theme.pageFill(scheme)))
-        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Theme.cardStroke(scheme), lineWidth: 1).allowsHitTesting(false))
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .shadow(color: .black.opacity(scheme == .dark ? 0.30 : 0.08), radius: 18, y: 6)
-        .padding(.trailing, 12)
-        .padding(.bottom, 4)
+        .pageSurface()
         .onAppear { editor.node = node }
     }
 

@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct RootView: View {
     @Environment(Store.self) private var store
@@ -71,6 +72,8 @@ struct RootView: View {
 struct MainView: View {
     let space: SpaceModel
     @Environment(Store.self) private var store
+    @Environment(AppUI.self) private var ui
+    @State private var dropTargeted = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -79,9 +82,15 @@ struct MainView: View {
                 SpaceRail()
                 ZStack {
                     if let node = space.activeNode {
-                        NodeView(node: node, space: space)
-                            .id(node.id)
-                            .transition(.opacity.combined(with: .offset(y: 8)))
+                        Group {
+                            if node.isFile {
+                                FileNodeView(node: node, space: space)
+                            } else {
+                                NodeView(node: node, space: space)
+                            }
+                        }
+                        .id(node.id)
+                        .transition(.opacity.combined(with: .offset(y: 8)))
                     } else {
                         SpaceHomeView(space: space)
                             .id(space.id)
@@ -93,6 +102,27 @@ struct MainView: View {
             }
             StatusFooter(space: space)
         }
+        .onDrop(of: [.fileURL], isTargeted: $dropTargeted) { providers in
+            FileImporter.handleDrop(providers, into: space, store: store, ui: ui)
+        }
+        .overlay {
+            if dropTargeted {
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .strokeBorder(Theme.accent, style: StrokeStyle(lineWidth: 2.5, dash: [9, 6]))
+                    .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(Theme.accent.opacity(0.10)))
+                    .overlay {
+                        Label(L("Drop to add to this Space", "놓으면 이 Space에 추가돼요"), systemImage: "paperclip")
+                            .font(.app(15, .semibold))
+                            .padding(.horizontal, 18)
+                            .padding(.vertical, 11)
+                            .glassCapsule()
+                    }
+                    .padding(10)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+            }
+        }
+        .animation(Motion.snappy, value: dropTargeted)
     }
 }
 
@@ -101,6 +131,8 @@ struct MainView: View {
 /// Browser-style strip: Space home, one tab per open node, and "+" for a new node.
 struct TabBar: View {
     let space: SpaceModel
+    @Environment(Store.self) private var store
+    @Environment(AppUI.self) private var ui
     @Namespace private var namespace
     @Environment(\.colorScheme) private var scheme
 
@@ -119,6 +151,9 @@ struct TabBar: View {
                         }
                         IconButton(symbol: "plus", size: 13, side: 30, help: L("New node  ⌘T", "새 노드  ⌘T")) {
                             withAnimation(Motion.spring) { _ = space.addNode() }
+                        }
+                        IconButton(symbol: "paperclip", size: 13, side: 30, help: L("Add a file  ⌘O", "파일 추가  ⌘O")) {
+                            FileImporter.pick(into: space, store: store, ui: ui)
                         }
                     }
                     .padding(.horizontal, 2)
@@ -315,7 +350,9 @@ struct StatusFooter: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            if let node = space.activeNode {
+            if let file = space.activeNode?.file {
+                Label(file.summary, systemImage: "paperclip")
+            } else if let node = space.activeNode {
                 Label(L("\(node.wordCount) words", "단어 \(node.wordCount)개"), systemImage: "text.alignleft")
             } else {
                 Label(L("\(space.nodes.count) nodes", "노드 \(space.nodes.count)개"), systemImage: "square.stack.3d.up")

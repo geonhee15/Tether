@@ -54,6 +54,7 @@ final class Store {
             dataDir = base.appendingPathComponent("Tether", isDirectory: true)
         }
         try? FileManager.default.createDirectory(at: dataDir.appendingPathComponent("spaces"), withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: dataDir.appendingPathComponent("files"), withIntermediateDirectories: true)
         accounts = read([Account].self, from: "accounts.json") ?? []
         session = read(SessionState.self, from: "session.json") ?? SessionState()
         let known = Set(accounts.map(\.id))
@@ -134,7 +135,7 @@ final class Store {
     }
 
     func logOut(_ id: UUID) {
-        if let space = spaces[id] { flush(space) }
+        if let space = spaces[id] { flush(space, closing: true) }
         spaces[id] = nil
         histories[id] = nil
         session.loggedIn.removeAll { $0 == id }
@@ -152,6 +153,7 @@ final class Store {
         if session.active == id { session.active = session.loggedIn.first }
         accounts.removeAll { $0.id == id }
         try? FileManager.default.removeItem(at: spaceURL(id))
+        try? FileManager.default.removeItem(at: filesDirectory(for: id))
         persistAccounts()
     }
 
@@ -199,7 +201,45 @@ final class Store {
         spaces[id] = space
         for node in space.nodes { signatures[node.id] = signature(of: node) }
         histories[id] = SpaceHistory(space)
+        purgeOrphanFiles(in: space)
         watch(space)
+    }
+
+    // MARK: Files
+
+    /// Where a Space keeps the files added to it.
+    func filesDirectory(for spaceID: UUID) -> URL {
+        dataDir.appendingPathComponent("files/\(spaceID.uuidString)", isDirectory: true)
+    }
+
+    func fileURL(for file: FileAttachment, in space: SpaceModel) -> URL {
+        filesDirectory(for: space.id).appendingPathComponent(file.storedName)
+    }
+
+    /// Copies a file into the Space and opens it as a node.
+    @discardableResult
+    func importFile(at source: URL, into space: SpaceModel) throws -> NodeModel {
+        let values = try source.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
+        guard values.isRegularFile == true else { throw CocoaError(.fileReadUnsupportedScheme) }
+        let directory = filesDirectory(for: space.id)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let ext = source.pathExtension
+        let storedName = UUID().uuidString + (ext.isEmpty ? "" : "." + ext)
+        try FileManager.default.copyItem(at: source, to: directory.appendingPathComponent(storedName))
+        let file = FileAttachment(storedName: storedName, originalName: source.lastPathComponent, byteCount: values.fileSize ?? 0)
+        return space.addFileNode(file)
+    }
+
+    /// Deletes stored files no node points at any more. Deleting a file node keeps its file so
+    /// Undo can bring it back; the leftovers are cleared when the undo history is gone
+    /// (at launch, at sign-out and at quit).
+    func purgeOrphanFiles(in space: SpaceModel) {
+        let directory = filesDirectory(for: space.id)
+        guard let stored = try? FileManager.default.contentsOfDirectory(atPath: directory.path) else { return }
+        let used = Set(space.nodes.compactMap { $0.file?.storedName })
+        for name in stored where !used.contains(name) {
+            try? FileManager.default.removeItem(at: directory.appendingPathComponent(name))
+        }
     }
 
     /// Registers for the next change anywhere in the Space. Observation fires once per
@@ -266,15 +306,21 @@ final class Store {
         lastSaved = Date()
     }
 
-    private func flush(_ space: SpaceModel) {
+    /// Writes a Space out now. `closing` means its undo history ends here (sign-out or quit),
+    /// so files that only Undo could still bring back are removed too.
+    private func flush(_ space: SpaceModel, closing: Bool = false) {
+        if closing {
+            histories[space.id]?.reset(space)
+            purgeOrphanFiles(in: space)
+        }
         save(space)
         saveTimers[space.id]?.invalidate()
         saveTimers[space.id] = nil
     }
 
-    /// Writes everything out now (app is quitting).
-    func flushAll() {
-        for space in spaces.values { flush(space) }
+    /// Writes everything out now. Pass `closing: true` when the app is quitting.
+    func flushAll(closing: Bool = false) {
+        for space in spaces.values { flush(space, closing: closing) }
         persistAccounts()
     }
 

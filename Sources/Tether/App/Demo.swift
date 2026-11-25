@@ -46,6 +46,9 @@ enum Demo {
         case "node0": open(0)
         case "node1": open(1)
         case "node2": open(2)
+        case "file": open(3)
+        case "filetest":
+            fileTest(store: store)
         case "insert":
             open(0)
             ui.demoInsertMenu = true
@@ -401,8 +404,95 @@ enum Demo {
             RefLink(from: Anchor(nodeID: plan.id, blockID: milestones.id), to: Anchor(nodeID: board.id, blockID: hours.id)),
             RefLink(from: Anchor(nodeID: board.id, blockID: signals.id), to: Anchor(nodeID: people.id, blockID: profile.id)),
         ]
+        // A file node, made on the spot so no binary has to live in the repository.
+        if let pdf = makeSamplePDF(korean: korean), let brief = try? store.importFile(at: pdf, into: studio) {
+            studio.links.append(RefLink(from: Anchor(nodeID: brief.id, blockID: nil), to: Anchor(nodeID: plan.id, blockID: nil)))
+            try? FileManager.default.removeItem(at: pdf)
+        }
+        studio.activeTab = nil
         store.switchTo(studio.id)
         store.flushAll()
         for space in spaces { store.resetHistory(for: space) }
+    }
+
+    /// Draws a one-page fictional brief and returns where it was written.
+    private static func makeSamplePDF(korean: Bool) -> URL? {
+        func t(_ en: String, _ ko: String) -> String { korean ? ko : en }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(t("Launch Brief", "출시 브리프") + ".pdf")
+        var box = CGRect(x: 0, y: 0, width: 612, height: 792)
+        guard let pdf = CGContext(url as CFURL, mediaBox: &box, nil) else { return nil }
+        pdf.beginPDFPage(nil)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: pdf, flipped: false)
+        func draw(_ text: String, size: CGFloat, weight: NSFont.Weight, color: NSColor, in rect: CGRect) {
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.lineSpacing = 4
+            NSAttributedString(string: text, attributes: [.font: NSFont.systemFont(ofSize: size, weight: weight),
+                                                         .foregroundColor: color, .paragraphStyle: paragraph]).draw(in: rect)
+        }
+        let ink = NSColor(srgbRed: 0.12, green: 0.12, blue: 0.15, alpha: 1)
+        let soft = NSColor(srgbRed: 0.40, green: 0.41, blue: 0.46, alpha: 1)
+        NSColor(srgbRed: 1.0, green: 0.31, blue: 0.43, alpha: 1).setFill()
+        CGRect(x: 56, y: 716, width: 44, height: 5).fill()
+        draw(t("Launch Brief", "출시 브리프"), size: 30, weight: .bold, color: ink, in: CGRect(x: 56, y: 660, width: 500, height: 44))
+        draw(t("Studio · one page · draft 3", "스튜디오 · 1쪽 · 초안 3"), size: 12, weight: .regular, color: soft, in: CGRect(x: 56, y: 636, width: 500, height: 18))
+        draw(t("Why now", "왜 지금인가"), size: 15, weight: .semibold, color: ink, in: CGRect(x: 56, y: 590, width: 500, height: 22))
+        draw(t("The prototype is stable and the first testers keep coming back to it. Shipping a narrow first version before summer lets us learn from real use instead of guessing.",
+               "프로토타입이 안정됐고 첫 테스터들이 계속 다시 찾고 있습니다. 여름 전에 범위를 좁힌 첫 버전을 내놓으면 추측 대신 실제 사용에서 배울 수 있습니다."),
+             size: 12.5, weight: .regular, color: ink, in: CGRect(x: 56, y: 510, width: 500, height: 72))
+        draw(t("Readiness by milestone", "마일스톤별 준비도"), size: 15, weight: .semibold, color: ink, in: CGRect(x: 56, y: 466, width: 500, height: 22))
+        let rows: [(String, CGFloat, NSColor)] = [
+            (t("Prototype", "프로토타입"), 0.60, NSColor(srgbRed: 0.16, green: 0.47, blue: 0.84, alpha: 1)),
+            (t("Private beta", "비공개 베타"), 0.35, NSColor(srgbRed: 0.92, green: 0.41, blue: 0.20, alpha: 1)),
+            (t("Public launch", "정식 출시"), 0.10, NSColor(srgbRed: 0.11, green: 0.69, blue: 0.48, alpha: 1)),
+        ]
+        for (index, row) in rows.enumerated() {
+            let y = CGFloat(424 - index * 34)
+            draw(row.0, size: 12, weight: .regular, color: ink, in: CGRect(x: 56, y: y - 3, width: 120, height: 18))
+            NSColor(white: 0.92, alpha: 1).setFill()
+            NSBezierPath(roundedRect: CGRect(x: 180, y: y, width: 330, height: 12), xRadius: 6, yRadius: 6).fill()
+            row.2.setFill()
+            NSBezierPath(roundedRect: CGRect(x: 180, y: y, width: 330 * row.1, height: 12), xRadius: 6, yRadius: 6).fill()
+            draw("\(Int(row.1 * 100))", size: 11, weight: .medium, color: soft, in: CGRect(x: 520, y: y - 3, width: 40, height: 18))
+        }
+        draw(t("Next steps", "다음 단계"), size: 15, weight: .semibold, color: ink, in: CGRect(x: 56, y: 296, width: 500, height: 22))
+        draw(t("1.  Tighten the beta checklist\n2.  Confirm dates with the team\n3.  Share the draft a week early",
+               "1.  베타 체크리스트 다듬기\n2.  팀과 일정 확정\n3.  초안을 일주일 먼저 공유"),
+             size: 12.5, weight: .regular, color: ink, in: CGRect(x: 56, y: 222, width: 500, height: 66))
+        NSGraphicsContext.restoreGraphicsState()
+        pdf.endPDFPage()
+        pdf.closePDF()
+        return url
+    }
+
+    /// Adds a file, deletes its node, brings it back with Undo, then checks the leftover clean-up.
+    private static func fileTest(store: Store) {
+        guard let space = store.loggedInSpaces.first, let pdf = makeSamplePDF(korean: false) else { return }
+        let directory = store.filesDirectory(for: space.id)
+        func stored() -> Int { (try? FileManager.default.contentsOfDirectory(atPath: directory.path))?.count ?? 0 }
+        let filesBefore = stored(), nodesBefore = space.nodes.count
+        do {
+            let node = try store.importFile(at: pdf, into: space)
+            try? FileManager.default.removeItem(at: pdf)   // the original is gone; the copy must be enough
+            let copy = node.file.map { store.fileURL(for: $0, in: space) }
+            print("filetest: imported → nodes +\(space.nodes.count - nodesBefore) · files +\(stored() - filesBefore) · title “\(node.title)” · \(node.file?.summary ?? "-") · symbol \(node.symbol)")
+            print("filetest: copy readable after the original was deleted =", copy.map { FileManager.default.isReadableFile(atPath: $0.path) } ?? false, "· opens as tab =", space.activeTab == node.id)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                space.deleteNode(node.id)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                    print("filetest: node deleted → nodes +\(space.nodes.count - nodesBefore) · file kept for undo =", stored() - filesBefore == 1)
+                    _ = store.undo(in: space)
+                    print("filetest: undo → nodes +\(space.nodes.count - nodesBefore) · file node back =", space.node(node.id)?.isFile ?? false)
+                    space.deleteNode(node.id)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                        store.logOut(space.id)   // history ends here, so the leftover copy goes too
+                        print("filetest: after sign-out leftover files =", stored() - filesBefore, "· other files untouched =", stored() == filesBefore)
+                    }
+                }
+            }
+        } catch {
+            print("filetest: import failed →", error)
+        }
+        print("filetest: folder rejected =", (try? store.importFile(at: FileManager.default.temporaryDirectory, into: space)) == nil)
     }
 }

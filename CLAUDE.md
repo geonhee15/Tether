@@ -28,6 +28,10 @@ macOS notes app (SwiftUI + AppKit), built with `swiftc` via `./build.sh`. There 
   observation that drives autosave). Anything that edits the observed model is undoable for free —
   don't add `NSUndoManager` registrations, and keep `allowsUndo` off on the text views.
 
+- **Files**: a file node is a `NodeDoc` with `file` set; the bytes live in
+  `files/<spaceID>/<uuid>.<ext>` and are shown with Quick Look. Deleting the node keeps the copy so
+  Undo works; `Store.purgeOrphanFiles` removes leftovers when the history ends (launch, sign-out, quit).
+
 ## Credits
 
 `AppInfo.aiCredits` lists the AI models that worked on the app, in order. When the model or effort
@@ -45,7 +49,9 @@ preferences suite. Keep docs about what the app does, not about how any one pers
 `TETHER_SCENE=selftest` types, styles, inserts at the caret and merges; `TETHER_SCENE=authtest`
 exercises sign-in, duplicates, the 10-account limit and password replacement (the macOS owner
 prompt in `MacAuth` cannot be driven from a script); `TETHER_SCENE=undotest` makes five edits and
-undoes/redoes them; `TETHER_SCENE=awaketest` checks the power assertion with `pmset`. All print to stdout:
+undoes/redoes them; `TETHER_SCENE=awaketest` checks the power assertion with `pmset`;
+`TETHER_SCENE=filetest` imports a generated PDF, deletes and restores it and checks the clean-up.
+All print to stdout:
 
 ```bash
 D=$(mktemp -d); TETHER_DATA_DIR=$D TETHER_DEMO=1 TETHER_SCENE=selftest \

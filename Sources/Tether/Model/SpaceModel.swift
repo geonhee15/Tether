@@ -28,6 +28,8 @@ final class NodeModel: Identifiable {
     var createdAt: Date
     var updatedAt: Date
     var blocks: [BlockModel]
+    /// Non-nil for a node that shows a file rather than a written page.
+    var file: FileAttachment?
 
     init(_ doc: NodeDoc) {
         id = doc.id
@@ -36,12 +38,15 @@ final class NodeModel: Identifiable {
         createdAt = doc.createdAt
         updatedAt = doc.updatedAt
         blocks = doc.blocks.map(BlockModel.init)
+        file = doc.file
         if blocks.isEmpty { blocks = [BlockModel(Block(kind: .text))] }
     }
 
     var snapshot: NodeDoc {
-        NodeDoc(id: id, title: title, symbol: symbol, createdAt: createdAt, updatedAt: updatedAt, blocks: blocks.map(\.data))
+        NodeDoc(id: id, title: title, symbol: symbol, createdAt: createdAt, updatedAt: updatedAt, blocks: blocks.map(\.data), file: file)
     }
+
+    var isFile: Bool { file != nil }
 
     var displayTitle: String { title.isEmpty ? L("Untitled", "제목 없음") : title }
 
@@ -52,6 +57,7 @@ final class NodeModel: Identifiable {
     }
 
     var preview: String {
+        if let file { return file.summary }
         let text = plainText.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }.prefix(3).joined(separator: " · ")
         return String(text.prefix(140))
@@ -86,6 +92,7 @@ final class NodeModel: Identifiable {
     func apply(_ doc: NodeDoc) {
         if title != doc.title { title = doc.title }
         if symbol != doc.symbol { symbol = doc.symbol }
+        if file != doc.file { file = doc.file }
         let existing = Dictionary(uniqueKeysWithValues: blocks.map { ($0.id, $0) })
         var result: [BlockModel] = []
         for data in doc.blocks {
@@ -202,6 +209,19 @@ final class SpaceModel: Identifiable {
         activeTab = node.id
         return node
     }
+
+    /// Adds a node that shows a file already copied into the Space's folder.
+    @discardableResult
+    func addFileNode(_ file: FileAttachment) -> NodeModel {
+        let title = (file.originalName as NSString).deletingPathExtension
+        let node = NodeModel(NodeDoc(title: title, symbol: file.symbol, file: file))
+        nodes.append(node)
+        openTabs.append(node.id)
+        activeTab = node.id
+        return node
+    }
+
+    var fileCount: Int { nodes.filter(\.isFile).count }
 
     func open(_ nodeID: UUID) {
         guard nodes.contains(where: { $0.id == nodeID }) else { return }

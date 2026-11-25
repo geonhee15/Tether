@@ -285,6 +285,12 @@ final class TetherTextView: NSTextView {
         return super.performKeyEquivalent(with: event)
     }
 
+    /// Files dragged over the text are left for the window, which adds them to the Space,
+    /// instead of being typed in as a path.
+    override var acceptableDragTypes: [NSPasteboard.PasteboardType] {
+        super.acceptableDragTypes.filter { $0 != .fileURL && $0.rawValue != "NSFilenamesPboardType" && $0 != .URL }
+    }
+
     /// Pasted text takes on the surrounding style so the page stays consistent.
     override func paste(_ sender: Any?) {
         pasteAsPlainText(sender)

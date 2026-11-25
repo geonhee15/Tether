@@ -120,6 +120,8 @@ struct SettingsView: View {
             group {
                 shortcut(L("New node", "새 노드"), "⌘T")
                 rowDivider
+                shortcut(L("Add a file", "파일 추가"), "⌘O")
+                rowDivider
                 shortcut(L("Close node tab", "노드 탭 닫기"), "⌘W")
                 rowDivider
                 shortcut(L("Space home", "Space 홈"), "⇧⌘H")

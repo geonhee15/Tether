@@ -195,7 +195,25 @@ struct GlassSurface<S: InsettableShape>: ViewModifier {
     }
 }
 
+/// The sheet a node sits on — written pages and files share it.
+struct PageSurface: ViewModifier {
+    @Environment(\.colorScheme) private var scheme
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 20, style: .continuous)
+        content
+            .background(shape.fill(Theme.pageFill(scheme)))
+            .overlay(shape.strokeBorder(Theme.cardStroke(scheme), lineWidth: 1).allowsHitTesting(false))
+            .clipShape(shape)
+            .shadow(color: .black.opacity(scheme == .dark ? 0.30 : 0.08), radius: 18, y: 6)
+            .padding(.trailing, 12)
+            .padding(.bottom, 4)
+    }
+}
+
 extension View {
+    func pageSurface() -> some View { modifier(PageSurface()) }
+
     func card(radius: CGFloat = 14, fill: Color? = nil) -> some View {
         modifier(CardBackground(radius: radius, fill: fill))
     }

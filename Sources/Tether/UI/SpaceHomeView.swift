@@ -3,6 +3,7 @@ import SwiftUI
 /// Landing page of a Space: who it is, its nodes, and how they connect.
 struct SpaceHomeView: View {
     let space: SpaceModel
+    @Environment(Store.self) private var store
     @Environment(AppUI.self) private var ui
     @Environment(\.colorScheme) private var scheme
     @State private var appeared = false
@@ -57,6 +58,10 @@ struct SpaceHomeView: View {
                     Label(L("New Node", "새 노드"), systemImage: "plus")
                 }
                 .buttonStyle(PrimaryButtonStyle())
+                Button { FileImporter.pick(into: space, store: store, ui: ui) } label: {
+                    Label(L("Add File", "파일 추가"), systemImage: "paperclip")
+                }
+                .buttonStyle(SoftButtonStyle())
                 Button { ui.present(.spaceSettings) } label: {
                     Label(L("Space Settings", "Space 설정"), systemImage: "slider.horizontal.3")
                 }
@@ -75,7 +80,7 @@ struct SpaceHomeView: View {
 
     private var nodesSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            SectionLabel(text: L("Nodes", "노드"))
+            SectionLabel(text: space.fileCount > 0 ? L("Nodes & files", "노드와 파일") : L("Nodes", "노드"))
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 230, maximum: 340), spacing: 12)], alignment: .leading, spacing: 12) {
                 ForEach(space.nodes.sorted { $0.updatedAt > $1.updatedAt }) { node in
                     NodeCard(node: node, space: space)
@@ -151,7 +156,7 @@ private struct NodeCard: View {
                     Circle().fill(Theme.accent).frame(width: 6, height: 6).help(L("Open in a tab", "탭에 열려 있음"))
                 }
             }
-            Text(node.preview.isEmpty ? L("Empty node", "빈 노드") : node.preview)
+            Text(node.preview.isEmpty ? L("Empty node", "빈 노드") : (node.isFile ? L("File", "파일") + " · " + node.preview : node.preview))
                 .font(.app(12))
                 .foregroundStyle(node.preview.isEmpty ? .tertiary : .secondary)
                 .lineSpacing(2)
