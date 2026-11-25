@@ -24,7 +24,7 @@ enum Demo {
         seed(store)
     }
 
-    static func runScene(store: Store, ui: AppUI, editor: EditorController, window: NSWindow) {
+    static func runScene(store: Store, ui: AppUI, editor: EditorController, window: NSWindow, ai: AIStore, engine: AIEngine) {
         guard isActive else { return }
         let scene = env["TETHER_SCENE"] ?? "home"
         let studio = store.loggedInSpaces.first
@@ -55,6 +55,33 @@ enum Demo {
             spaceTest(store: store)
         case "cattest":
             categoryTest(store: store)
+        case "assistant":
+            seedAssistant(store: store, ai: ai)
+            open(0)
+            ai.settings.panelOpen = true
+        case "assistant-ask":
+            seedAssistant(store: store, ai: ai)
+            open(1)
+            ai.settings.panelOpen = true
+            if let studio, let thread = ai.activeThread(in: studio.id) {
+                let korean = AppSettings.shared.language == .ko
+                engine.approval = AIEngine.PendingApproval(
+                    thread: thread.id,
+                    title: korean ? "“Jordan과 함께 일하기”에 글 추가" : "Add text to “Working with Jordan”",
+                    detail: korean ? "## 이번 주 노트 초안\n프로토타입 준비도 60 → 75. 베타 체크리스트 초안을 금요일 오전에 공유할게요."
+                                   : "## This week's note, draft\nPrototype readiness 60 → 75. I'll share the beta checklist draft on Friday morning.")
+            }
+        case "aisettings":
+            seedAssistant(store: store, ai: ai)
+            open(0)
+            ui.settingsTab = .ai
+            ui.overlay = .settings
+        case "aitest":
+            aiTest(store: store, ai: ai, engine: engine)
+        case "mcptest":
+            mcpTest(store: store, ai: ai, engine: engine)
+        case "ollamatest":
+            ollamaTest(store: store, ai: ai, engine: engine)
         case "node0": open(0)
         case "node1": open(1)
         case "node2": open(2)
@@ -529,6 +556,190 @@ enum Demo {
         attempt("sign in again") { try store.signIn(username: "studio", password: "demo") }
         print("spacetest: signed in → loaded \(store.spaces(of: account.id).count) · front Space is the first =", store.activeSpace?.id == first.id,
               "· nodes", store.activeSpace?.nodes.count ?? -1)
+    }
+
+    /// A fictional conversation, memory and set of connected services, so the assistant can be
+    /// shown without a key or a network. Model names are the ones in each service's own documentation.
+    private static func seedAssistant(store: Store, ai: AIStore) {
+        guard let studio = store.loggedInSpaces.first, let account = store.owner(of: studio.id), studio.nodes.count >= 3 else { return }
+        let korean = AppSettings.shared.language == .ko
+        func t(_ en: String, _ ko: String) -> String { korean ? ko : en }
+        let opus = AIModelRef(provider: .anthropic, modelID: "claude-opus-5-5", name: "Claude Opus 5.5")
+        let gpt = AIModelRef(provider: .openai, modelID: "gpt-6.2-astra", name: "gpt-6.2-astra")
+        let gemini = AIModelRef(provider: .gemini, modelID: "gemini-4-hydrogen", name: "gemini-4-hydrogen")
+        ai.models = [
+            .anthropic: [opus, AIModelRef(provider: .anthropic, modelID: "claude-sonnet-5-5", name: "Claude Sonnet 5.5"),
+                         AIModelRef(provider: .anthropic, modelID: "claude-haiku-5-5", name: "Claude Haiku 5.5")],
+            .openai: [gpt],
+            .gemini: [gemini],
+            .ollama: [AIModelRef(provider: .ollama, modelID: "llama3.2:3b", name: "llama3.2:3b")],
+        ]
+        for kind in AIProviderKind.allCases {
+            if kind.needsKey { KeyVault.setKey("demo", for: kind) }
+            ai.connection[kind] = .connected
+        }
+        ai.keyRevision += 1
+        ai.settings.selected = gemini
+        ai.settings.permission = .ask
+        ai.remember(t("Weekly progress notes go out on Friday morning.", "주간 진행 노트는 금요일 오전에 보낸다."), author: gpt.label, for: account.id)
+        ai.remember(t("Summaries should fit in five lines.", "요약은 다섯 줄 이내를 선호한다."), author: "", for: account.id)
+
+        let plan = studio.nodes[0], people = studio.nodes[1], board = studio.nodes[2]
+        let risks = t("## Risks before beta\n- **Scope creep** — two “nice to have” items are back on the list.\n- **One owner** for the beta checklist, with 35 readiness.\n- Feedback depth is still the weakest signal.",
+                      "## 베타 전 위험 요소\n- **범위 확장** — ‘있으면 좋은 것’ 두 가지가 다시 목록에 올라왔어요.\n- 베타 체크리스트 **담당이 한 명**이고 준비도는 35예요.\n- 피드백 깊이가 여전히 가장 약한 신호예요.")
+        NodeReader.append(risks, to: plan)
+        let thread = ai.newThread(in: studio.id)
+        ai.updateThread(thread.id, in: studio.id) { thread in
+            thread.title = t("Risks before the beta", "베타 전 위험 요소")
+            thread.messages = [
+                ChatMessage(role: .user, text: t("What could still go wrong before the beta? Look at the plan and the numbers.", "베타 전에 아직 걸릴 만한 게 뭐야? 출시 계획이랑 수치를 같이 봐 줘."), nodeID: plan.id),
+                ChatMessage(role: .assistant,
+                            text: t("Three things stand out:\n\n- **Scope** — two “nice to have” items crept back in.\n- **Private beta sits at 35** with a single owner.\n- **Feedback depth (40)** is the weakest signal on the board.\n\nThe first two are in your hands this week.",
+                                    "세 가지가 눈에 띄어요.\n\n- **범위** — ‘있으면 좋은 것’ 두 가지가 다시 들어왔어요.\n- **비공개 베타 준비도가 35**이고 담당이 한 명뿐이에요.\n- 신호 보드에서 **피드백 깊이(40)** 가 가장 약해요.\n\n앞의 두 가지는 이번 주에 직접 줄일 수 있어요."),
+                            model: opus,
+                            activity: [ToolActivity(tool: "read_node", summary: t("Read “\(plan.displayTitle)”", "“\(plan.displayTitle)” 읽음"), nodeID: plan.id),
+                                       ToolActivity(tool: "read_node", summary: t("Read “\(board.displayTitle)”", "“\(board.displayTitle)” 읽음"), nodeID: board.id)]),
+                ChatMessage(role: .user, text: t("Good. Add that to the end of the plan as “Risks”.", "좋아. 그걸 출시 계획 끝에 ‘위험 요소’로 넣어 줘."), nodeID: plan.id),
+                ChatMessage(role: .assistant,
+                            text: t("Added a **Risks before beta** section at the end of the plan, using the three points Claude listed.", "Claude가 정리한 세 가지를 그대로 써서, 출시 계획 끝에 **베타 전 위험 요소** 구획을 추가했어요."),
+                            model: gpt,
+                            activity: [ToolActivity(tool: "append_to_node", summary: t("Added text to “\(plan.displayTitle)”", "“\(plan.displayTitle)”에 글을 추가함"), nodeID: plan.id, changedContent: true)]),
+                ChatMessage(role: .user, text: t("When should I send Jordan this week's note?", "Jordan한테 이번 주 노트는 언제 보내면 좋을까?"), nodeID: plan.id),
+                ChatMessage(role: .assistant,
+                            text: t("**Friday morning** — that's what you settled on earlier, and Jordan answers specific written updates fastest. Lead with the readiness change, then the one question you want answered.",
+                                    "**금요일 오전**이 좋아요. 전에 그렇게 정해 두셨고, Jordan은 구체적인 서면 공유에 가장 빨리 답해요. 준비도 변화를 먼저 쓰고, 답을 듣고 싶은 질문 하나를 이어서 적어 보세요."),
+                            model: gemini,
+                            activity: [ToolActivity(tool: "read_node", summary: t("Read “\(people.displayTitle)”", "“\(people.displayTitle)” 읽음"), nodeID: people.id)]),
+            ]
+        }
+        ai.saveChats(studio.id)
+        store.resetHistory(for: studio)
+    }
+
+    /// Sends one message and waits for the reply to finish.
+    private static func turn(_ text: String, with model: AIModelRef?, in space: SpaceModel, ai: AIStore, engine: AIEngine) async -> ChatMessage? {
+        if let model { ai.settings.selected = model }
+        return await withCheckedContinuation { continuation in
+            engine.onFinish = { threadID in
+                engine.onFinish = nil
+                continuation.resume(returning: ai.thread(threadID, in: space.id)?.messages.last)
+            }
+            if engine.send(text, in: space) == nil {
+                engine.onFinish = nil
+                continuation.resume(returning: nil)
+            }
+        }
+    }
+
+    /// Runs one conversation through Claude, ChatGPT and Gemini in turn, against the stand-in
+    /// server in Scripts/mock-ai.py (keys and addresses come from TETHER_AI_KEY_* / TETHER_AI_BASE_*).
+    /// Checks streaming, tool calls that edit a node, Undo, the shared memory, that each
+    /// service sees the others' replies, and that a declined edit changes nothing.
+    private static func aiTest(store: Store, ai: AIStore, engine: AIEngine) {
+        guard let space = store.loggedInSpaces.first, let account = store.owner(of: space.id), let plan = space.nodes.first else { return }
+        store.selectSpace(space.id)
+        space.open(plan.id)
+        ai.settings.permission = .auto
+        ai.newThread(in: space.id)
+        func show(_ label: String, _ message: ChatMessage?) {
+            print("aitest: \(label) → “\(message?.text.replacingOccurrences(of: "\n", with: "⏎") ?? "-")” · by \(message?.model?.label ?? "-")",
+                  "· actions \(message?.activity.map { "\($0.summary) [\($0.status.rawValue)]" } ?? [])",
+                  message?.error.map { "· error \($0)" } ?? "")
+        }
+        Task { @MainActor in
+            for kind in [AIProviderKind.anthropic, .openai, .gemini] {
+                await ai.refreshModels(kind)
+                print("aitest: \(kind.title) connected =", ai.connection[kind] == .connected, "· models", (ai.models[kind] ?? []).map(\.modelID))
+            }
+            print("aitest: default model =", ai.activeModel?.label ?? "-")
+            guard let claude = ai.defaultModel(of: .anthropic), let gpt = ai.defaultModel(of: .openai), let gemini = ai.defaultModel(of: .gemini) else { return }
+            let wordsBefore = plan.wordCount
+
+            show("Claude", await turn("Add a line to the plan.", with: claude, in: space, ai: ai, engine: engine))
+            let added = plan.blocks.last { $0.data.kind == .text }?.data.runs ?? []
+            print("aitest: node edited =", plan.plainText.contains("Added by the Claude mock."),
+                  "· heading run styled =", added.contains { $0.t.contains("From Claude") && $0.b == true && $0.z == 21 },
+                  "· bold run =", added.contains { $0.t == "Claude" && $0.b == true })
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            _ = store.undo(in: space)
+            print("aitest: ⌘Z removes the model's edit =", !plan.plainText.contains("Added by the Claude mock."), "· words back =", plan.wordCount == wordsBefore)
+            _ = store.redo(in: space)
+            print("aitest: redo brings it back =", plan.plainText.contains("Added by the Claude mock."))
+
+            show("ChatGPT", await turn("Remember how I like summaries.", with: gpt, in: space, ai: ai, engine: engine))
+            print("aitest: shared memory =", ai.memory(for: account.id).map { "\($0.text) (\($0.author))" })
+
+            show("Gemini", await turn("What have the others done here?", with: gemini, in: space, ai: ai, engine: engine))
+
+            ai.settings.permission = .ask
+            let textBefore = plan.plainText
+            let watcher = Task { @MainActor in
+                while engine.approval == nil { try? await Task.sleep(nanoseconds: 50_000_000) }
+                print("aitest: asked before editing → “\(engine.approval?.title ?? "-")” · shows the text =", engine.approval?.detail.contains("Added by") ?? false)
+                engine.answer(.deny)
+            }
+            show("Claude, edit declined", await turn("Add another line.", with: claude, in: space, ai: ai, engine: engine))
+            watcher.cancel()
+            print("aitest: declined edit left the node alone =", plan.plainText == textBefore)
+
+            ai.settings.permission = .readOnly
+            let toolbox = AIToolbox(space: space, store: store, ai: ai, account: account, threadID: UUID(), model: claude, mcp: engine.mcp)
+            print("aitest: read-only offers no editing tools =", !toolbox.specs().contains { $0.writes }, "· tools offered", toolbox.specs().count, "of", AIToolbox.builtIn.count)
+
+            let reloaded = AIStore(dataDir: store.dataDir)
+            let saved = reloaded.threads(in: space.id).first { $0.messages.count >= 8 }
+            print("aitest: saved to disk → messages \(saved?.messages.count ?? 0) · written by \(Array(Set(saved?.messages.compactMap { $0.model?.provider.title } ?? [])).sorted())",
+                  "· memory items \(reloaded.memory(for: account.id).count) · title “\(saved?.title ?? "-")”")
+            let keyOnDisk = (try? FileManager.default.subpathsOfDirectory(atPath: store.dataDir.path))?.contains { path in
+                ((try? String(contentsOf: store.dataDir.appendingPathComponent(path), encoding: .utf8)) ?? "").contains("test-key")
+            } ?? false
+            print("aitest: API key written to the data folder =", keyOnDisk)
+        }
+    }
+
+    /// Connects the stand-in MCP server in Scripts/mock-mcp.py (path in TETHER_MCP_MOCK) and calls its tools.
+    private static func mcpTest(store: Store, ai: AIStore, engine: AIEngine) {
+        guard let space = store.loggedInSpaces.first, let account = store.owner(of: space.id),
+              let script = env["TETHER_MCP_MOCK"] else { return }
+        let config = MCPServerConfig(name: "Mock tools", command: "python3 '\(script)'")
+        let missing = MCPServerConfig(name: "Missing", command: "definitely-not-a-command-xyz")
+        ai.settings.servers = [config, missing]
+        ai.settings.permission = .ask
+        Task { @MainActor in
+            await engine.mcp.sync(with: ai.settings.servers)
+            print("mcptest: connected →", engine.mcp.status[config.id] == .connected(2), "· tools", engine.mcp.tools.map(\.name))
+            if case .failed(let why) = engine.mcp.status[missing.id] ?? .idle { print("mcptest: a bad command fails cleanly → \(why.prefix(60))") }
+            let toolbox = AIToolbox(space: space, store: store, ai: ai, account: account, threadID: UUID(),
+                                    model: AIModelRef(provider: .ollama, modelID: "x", name: "x"), mcp: engine.mcp)
+            let echo = AIToolCall(id: "1", name: "mcp__Mock_tools__echo", input: ["text": "hello"], rawInput: "{}")
+            let add = AIToolCall(id: "2", name: "mcp__Mock_tools__add", input: ["a": 2, "b": 40], rawInput: "{}")
+            let (first, firstActivity) = await toolbox.run(echo)
+            let (second, _) = await toolbox.run(add)
+            print("mcptest: echo → “\(first.text)” · shown as “\(firstActivity.summary)” · add → “\(second.text)”")
+            print("mcptest: read-only tool runs without asking =", !toolbox.needsApproval(echo), "· other tools ask first =", toolbox.needsApproval(add))
+            print("mcptest: offered to models alongside the built-in tools =", toolbox.specs().count == AIToolbox.builtIn.count + 2)
+            ai.settings.servers[0].enabled = false
+            await engine.mcp.sync(with: ai.settings.servers)
+            print("mcptest: switched off → tools", engine.mcp.tools.count)
+        }
+    }
+
+    /// Talks to a real model running in Ollama on this Mac (nothing leaves the machine).
+    private static func ollamaTest(store: Store, ai: AIStore, engine: AIEngine) {
+        guard let space = store.loggedInSpaces.first else { return }
+        store.selectSpace(space.id)
+        ai.settings.permission = .auto
+        ai.newThread(in: space.id)
+        Task { @MainActor in
+            await ai.refreshModels(.ollama)
+            let listed = ai.models[.ollama] ?? []
+            print("ollamatest: connected =", ai.connection[.ollama] == .connected, "· models", listed.map(\.modelID))
+            guard let model = listed.first(where: { $0.modelID == env["TETHER_OLLAMA_MODEL"] }) ?? listed.first else { return }
+            let reply = await turn(env["TETHER_OLLAMA_PROMPT"] ?? "Call the list_nodes tool, then tell me in one sentence how many nodes this Space has.",
+                                   with: model, in: space, ai: ai, engine: engine)
+            print("ollamatest: \(model.modelID) → “\(reply?.text.replacingOccurrences(of: "\n", with: "⏎") ?? "-")”",
+                  "· actions \(reply?.activity.map { "\($0.summary) [\($0.status.rawValue)]" } ?? [])", reply?.error.map { "· error \($0)" } ?? "")
+        }
     }
 
     /// Makes categories, files nodes under them, deletes one and brings it back with Undo.

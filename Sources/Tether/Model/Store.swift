@@ -180,6 +180,7 @@ final class Store {
         session.loggedIn.removeAll { $0 == id }
         if session.active == id { session.active = session.loggedIn.first }
         accounts.removeAll { $0.id == id }
+        AIStore.erase(accountID: id, in: dataDir)
         persistAccounts()
     }
 
@@ -191,6 +192,7 @@ final class Store {
         histories[spaceID] = nil
         try? FileManager.default.removeItem(at: spaceURL(spaceID))
         try? FileManager.default.removeItem(at: filesDirectory(for: spaceID))
+        AIStore.erase(spaceID: spaceID, in: dataDir)
     }
 
     // MARK: Spaces

@@ -19,6 +19,7 @@ struct SettingsView: View {
                     case .general: general
                     case .appearance: appearance
                     case .editor: editorTab
+                    case .ai: AISettingsView()
                     case .data: data
                     case .about: about
                     }
@@ -81,6 +82,7 @@ struct SettingsView: View {
         case .general: return L("General", "일반")
         case .appearance: return L("Appearance", "모양")
         case .editor: return L("Editor", "에디터")
+        case .ai: return "AI"
         case .data: return L("Data", "데이터")
         case .about: return L("About", "정보")
         }
@@ -91,6 +93,7 @@ struct SettingsView: View {
         case .general: return "gearshape.fill"
         case .appearance: return "paintpalette.fill"
         case .editor: return "textformat"
+        case .ai: return "sparkles"
         case .data: return "externaldrive.fill"
         case .about: return "info.circle.fill"
         }
@@ -133,6 +136,8 @@ struct SettingsView: View {
                 shortcut(L("Save now", "지금 저장"), "⌘S")
                 rowDivider
                 shortcut(L("Keep awake mode", "절전 방지 모드"), "⇧⌘K")
+                rowDivider
+                shortcut(L("AI assistant", "AI 어시스턴트"), "⌘J")
                 rowDivider
                 shortcut(L("Bold · Italic · Underline", "굵게 · 기울임 · 밑줄"), "⌘B  ⌘I  ⌘U")
                 rowDivider

@@ -43,6 +43,9 @@ shot analytics-actions node1   TETHER_LANG=ko TETHER_APPEARANCE=light TETHER_SCR
 shot linked-chart     node2    TETHER_LANG=ko TETHER_APPEARANCE=dark
 shot chart-line       node2    TETHER_LANG=en TETHER_APPEARANCE=light TETHER_SCROLL=600
 shot file             file     TETHER_LANG=ko TETHER_APPEARANCE=light TETHER_SNAPSHOT_DELAY=4
+shot assistant        assistant     TETHER_LANG=ko TETHER_APPEARANCE=light
+shot assistant-approval assistant-ask TETHER_LANG=ko TETHER_APPEARANCE=dark
+shot ai-settings      aisettings    TETHER_LANG=ko TETHER_APPEARANCE=light
 shot keep-awake       awake    TETHER_LANG=ko TETHER_APPEARANCE=dark TETHER_SNAPSHOT_DELAY=3
 shot settings         settings TETHER_LANG=ko TETHER_APPEARANCE=light TETHER_SETTINGS_TAB=appearance
 shot about            settings TETHER_LANG=ko TETHER_APPEARANCE=dark TETHER_SETTINGS_TAB=about

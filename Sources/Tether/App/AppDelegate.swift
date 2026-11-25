@@ -6,6 +6,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let store = Store()
     let ui = AppUI()
     let editor = EditorController()
+    private(set) lazy var ai = AIStore(dataDir: store.dataDir)
+    let mcp = MCPHub()
+    private(set) lazy var engine = AIEngine(store: store, ai: ai, mcp: mcp)
     private var window: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -29,6 +32,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .environment(store)
             .environment(ui)
             .environment(editor)
+            .environment(ai)
+            .environment(mcp)
+            .environment(engine)
         window.contentView = NSHostingView(rootView: root)
         window.center()
         if env["TETHER_DATA_DIR"] == nil { window.setFrameAutosaveName("TetherMainWindow") }
@@ -36,13 +42,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
         self.window = window
 
-        Demo.runScene(store: store, ui: ui, editor: editor, window: window)
+        Demo.runScene(store: store, ui: ui, editor: editor, window: window, ai: ai, engine: engine)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
     func applicationWillTerminate(_ notification: Notification) {
         SleepGuard.shared.stop()
+        mcp.shutdown()
         store.flushAll(closing: true)
     }
 
@@ -95,6 +102,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let awake = item(L("Keep Awake Mode", "절전 방지 모드"), #selector(toggleAwake), "k")
         awake.keyEquivalentModifierMask = [.command, .shift]
         view.addItem(awake)
+        view.addItem(item(L("AI Assistant", "AI 어시스턴트"), #selector(toggleAssistant), "j"))
         main.addItem(submenu(view.title, view))
 
         let windowMenu = NSMenu(title: L("Window", "윈도우"))
@@ -167,6 +175,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func newSpace() {
         guard editableSpace != nil, let account = store.activeAccount else { return }
         SpaceActions.create(in: account.id, store: store, ui: ui)
+    }
+
+    @objc private func toggleAssistant() {
+        guard editableSpace != nil else { return }
+        withAnimation(Motion.spring) { ai.settings.panelOpen.toggle() }
     }
 
     @objc private func toggleAwake() {

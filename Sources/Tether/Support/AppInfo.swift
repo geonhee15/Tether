@@ -30,6 +30,8 @@ enum AppInfo {
         ("AppKit · TextKit", "Window chrome and the rich text editor"),
         ("Swift Charts", "Pie, bar and line charts"),
         ("CryptoKit", "Salted password hashing"),
+        ("URLSession · Keychain", "Streaming to Claude, ChatGPT, Gemini and Ollama; keys kept in the Keychain"),
+        ("Model Context Protocol", "Tools from local and remote MCP servers"),
         ("Liquid Glass", "macOS 26 glass, material fallback on macOS 14–15"),
     ]
 

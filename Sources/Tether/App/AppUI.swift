@@ -2,7 +2,7 @@ import SwiftUI
 import Observation
 
 enum SettingsTab: String, CaseIterable, Identifiable {
-    case general, appearance, editor, data, about
+    case general, appearance, editor, ai, data, about
     var id: String { rawValue }
 }
 

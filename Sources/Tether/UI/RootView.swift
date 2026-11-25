@@ -76,6 +76,7 @@ struct MainView: View {
     let space: SpaceModel
     @Environment(Store.self) private var store
     @Environment(AppUI.self) private var ui
+    @Environment(AIStore.self) private var ai
     @State private var dropTargeted = false
 
     var body: some View {
@@ -102,7 +103,13 @@ struct MainView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .animation(Motion.smooth, value: space.activeTab)
+                if ai.settings.panelOpen {
+                    AssistantPanel(space: space)
+                        .id(space.id)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
             }
+            .animation(Motion.spring, value: ai.settings.panelOpen)
             StatusFooter(space: space)
         }
         .onDrop(of: [.fileURL], isTargeted: $dropTargeted) { providers in
@@ -136,6 +143,7 @@ struct TabBar: View {
     let space: SpaceModel
     @Environment(Store.self) private var store
     @Environment(AppUI.self) private var ui
+    @Environment(AIStore.self) private var ai
     @Namespace private var namespace
     @Environment(\.colorScheme) private var scheme
 
@@ -166,6 +174,22 @@ struct TabBar: View {
                 }
             }
             Spacer(minLength: 12)
+            Button {
+                withAnimation(Motion.spring) { ai.settings.panelOpen.toggle() }
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "sparkles").font(.system(size: 12, weight: .semibold))
+                    Text("AI").font(.app(12, .semibold))
+                }
+                .foregroundStyle(ai.settings.panelOpen ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(.secondary))
+                .padding(.horizontal, 10)
+                .frame(height: 30)
+                .background(RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(ai.settings.panelOpen ? Theme.accent.opacity(0.16) : Theme.hoverFill(scheme)))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(L("AI assistant  ⌘J", "AI 어시스턴트  ⌘J"))
         }
         .padding(.leading, 84)
         .padding(.trailing, 12)
