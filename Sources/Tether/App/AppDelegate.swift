@@ -68,6 +68,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let file = NSMenu(title: L("File", "파일"))
         file.addItem(item(L("New Node", "새 노드"), #selector(newNode), "t"))
         file.addItem(item(L("Add File…", "파일 추가…"), #selector(addFile), "o"))
+        let newSpace = item(L("New Space", "새 Space"), #selector(newSpace), "n")
+        newSpace.keyEquivalentModifierMask = [.command, .shift]
+        file.addItem(newSpace)
         file.addItem(item(L("Close Node", "노드 닫기"), #selector(closeNode), "w"))
         file.addItem(item(L("Save", "저장"), #selector(saveNow), "s"))
         file.addItem(.separator())
@@ -159,6 +162,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func addFile() {
         guard let space = editableSpace else { return }
         FileImporter.pick(into: space, store: store, ui: ui)
+    }
+
+    @objc private func newSpace() {
+        guard editableSpace != nil, let account = store.activeAccount else { return }
+        SpaceActions.create(in: account.id, store: store, ui: ui)
     }
 
     @objc private func toggleAwake() {

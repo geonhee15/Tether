@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Name, subtitle, description, icon and colour of a Space. Shown full-screen right after an
-/// account is created, and as a sheet afterwards.
+/// Name, subtitle, description, icon and colour of a Space. Shown full-screen right after a
+/// Space is created (with a new account, or added to one), and as a sheet afterwards.
 struct SpaceSetupView: View {
     let space: SpaceModel
     var onboarding: Bool
@@ -10,11 +10,27 @@ struct SpaceSetupView: View {
     @Environment(AppUI.self) private var ui
     @Environment(\.colorScheme) private var scheme
     @State private var appeared = false
-    @State private var changingPassword = false
-    @State private var newPassword = ""
-    @State private var newPasswordAgain = ""
-    @State private var passwordError: String?
-    @State private var passwordChanged = false
+
+    /// The account this Space belongs to, and how many Spaces it has.
+    private var owner: Account? { store.owner(of: space.id) }
+    private var isFirstSpace: Bool { (owner?.spaceIDs.count ?? 1) < 2 }
+
+    private var heading: String {
+        if !onboarding { return L("Space Settings", "Space 설정") }
+        return isFirstSpace ? L("Set up your Space", "Space 설정하기") : L("New Space", "새 Space 만들기")
+    }
+
+    private var caption: String {
+        let name = owner?.username ?? ""
+        if !onboarding {
+            return L("In the account “\(name)”", "“\(name)” 계정의 Space")
+        }
+        return isFirstSpace
+            ? L("A Space is your own area for one part of life. You can change all of this later.",
+                "Space는 삶의 한 영역을 위한 나만의 공간이에요. 나중에 언제든 바꿀 수 있어요.")
+            : L("Another area in the account “\(name)”, with its own nodes, files and links.",
+                "“\(name)” 계정 안의 또 다른 공간이에요. 노드와 파일, 링크를 따로 가져요.")
+    }
 
     var body: some View {
         @Bindable var space = space
@@ -24,11 +40,9 @@ struct SpaceSetupView: View {
                     .animation(Motion.spring, value: space.info.symbol)
                     .animation(Motion.spring, value: space.info.colorIndex)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(onboarding ? L("Set up your Space", "Space 설정하기") : L("Space Settings", "Space 설정"))
+                    Text(heading)
                         .font(.app(20, .bold))
-                    Text(onboarding ? L("A Space is your own area for one part of life. You can change all of this later.",
-                                        "Space는 삶의 한 영역을 위한 나만의 공간이에요. 나중에 언제든 바꿀 수 있어요.")
-                                    : L("Signed in as \(store.account(space.id)?.username ?? "")", "\(store.account(space.id)?.username ?? "") 계정으로 로그인됨"))
+                    Text(caption)
                         .font(.app(12))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -98,37 +112,41 @@ struct SpaceSetupView: View {
 
             HStack(spacing: 10) {
                 if !onboarding {
-                    Button(L("Sign Out", "로그아웃")) {
+                    Button(L("Delete Space…", "Space 삭제…")) {
                         ui.dismiss()
-                        withAnimation(Motion.spring) { store.logOut(space.id) }
+                        SpaceActions.confirmDelete(space, store: store, ui: ui)
                     }
-                    .buttonStyle(SoftButtonStyle())
-                    Button(passwordChanged ? L("Password Changed", "비밀번호 변경됨") : L("Change Password…", "비밀번호 변경…")) {
-                        passwordChanged = false
-                        changingPassword = true
-                    }
-                    .buttonStyle(SoftButtonStyle(tint: passwordChanged ? Theme.positive : nil))
-                    .popover(isPresented: $changingPassword, arrowEdge: .top) { passwordForm }
-                    Button(L("Delete Account…", "계정 삭제…")) { confirmDeleteAccount() }
-                        .buttonStyle(SoftButtonStyle(tint: Theme.negative))
-                } else {
+                    .buttonStyle(SoftButtonStyle(tint: Theme.negative))
+                    .disabled(isFirstSpace)
+                    .help(isFirstSpace ? L("An account keeps at least one Space.", "계정에는 Space가 하나 이상 있어야 해요.") : "")
+                    Button(L("Account…", "계정 관리…")) { ui.present(.account) }
+                        .buttonStyle(SoftButtonStyle())
+                } else if isFirstSpace {
                     Button(L("Use another account", "다른 계정 사용")) {
-                        withAnimation(Motion.spring) { store.logOut(space.id) }
+                        if let owner { withAnimation(Motion.spring) { store.logOut(owner.id) } }
                     }
                     .buttonStyle(SoftButtonStyle())
+                } else {
+                    Button(L("Cancel", "취소")) {
+                        withAnimation(Motion.spring) { _ = store.deleteSpace(space.id) }
+                    }
+                    .buttonStyle(SoftButtonStyle())
+                    .keyboardShortcut(.cancelAction)
                 }
                 Spacer()
                 Button {
                     if space.info.name.trimmingCharacters(in: .whitespaces).isEmpty {
-                        space.info.name = store.account(space.id)?.username ?? "Space"
+                        let position = (owner?.spaceIDs.firstIndex(of: space.id) ?? 0) + 1
+                        space.info.name = isFirstSpace ? (owner?.username ?? "Space") : "Space \(position)"
                     }
                     if onboarding {
                         withAnimation(Motion.spring) { space.info.isConfigured = true }
+                        store.resetHistory(for: space)
                     } else {
                         ui.dismiss()
                     }
                 } label: {
-                    Text(onboarding ? L("Enter Space", "Space 시작하기") : L("Done", "완료"))
+                    Text(onboarding ? (isFirstSpace ? L("Enter Space", "Space 시작하기") : L("Create Space", "Space 만들기")) : L("Done", "완료"))
                         .padding(.horizontal, 10)
                 }
                 .buttonStyle(PrimaryButtonStyle())
@@ -153,56 +171,6 @@ struct SpaceSetupView: View {
                 }
             }
             content()
-        }
-    }
-
-    /// You are already signed in here, so a new password is all it takes.
-    private var passwordForm: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(L("New password for “\(store.account(space.id)?.username ?? "")”", "“\(store.account(space.id)?.username ?? "")” 계정의 새 비밀번호"))
-                .font(.app(12, .semibold))
-            GlassField(symbol: "lock", placeholder: L("New password", "새 비밀번호"), text: $newPassword, secure: true, onSubmit: savePassword)
-            GlassField(symbol: "lock.rotation", placeholder: L("New password again", "새 비밀번호 다시 입력"), text: $newPasswordAgain, secure: true, onSubmit: savePassword)
-            if let passwordError {
-                Text(passwordError).font(.app(11.5)).foregroundStyle(Theme.negative)
-            }
-            Button(action: savePassword) {
-                Text(L("Save", "저장")).frame(maxWidth: .infinity)
-            }
-            .buttonStyle(PrimaryButtonStyle())
-        }
-        .padding(16)
-        .frame(width: 280)
-    }
-
-    private func savePassword() {
-        guard !newPassword.isEmpty else { passwordError = AuthError.emptyFields.message; return }
-        guard newPassword == newPasswordAgain else { passwordError = AuthError.passwordMismatch.message; return }
-        do {
-            try store.setPassword(for: space.id, to: newPassword)
-            newPassword = ""
-            newPasswordAgain = ""
-            passwordError = nil
-            changingPassword = false
-            withAnimation(Motion.snappy) { passwordChanged = true }
-        } catch let failure as AuthError {
-            passwordError = failure.message
-        } catch {
-            passwordError = error.localizedDescription
-        }
-    }
-
-    private func confirmDeleteAccount() {
-        let alert = NSAlert()
-        alert.messageText = L("Delete this account and its Space?", "이 계정과 Space를 삭제할까요?")
-        alert.informativeText = L("Every node in “\(space.info.name)” will be removed from this Mac. This can't be undone.",
-                                  "“\(space.info.name)”의 모든 노드가 이 Mac에서 삭제되며 되돌릴 수 없어요.")
-        alert.alertStyle = .critical
-        alert.addButton(withTitle: L("Delete", "삭제"))
-        alert.addButton(withTitle: L("Cancel", "취소"))
-        if alert.runModal() == .alertFirstButtonReturn {
-            ui.dismiss()
-            withAnimation(Motion.spring) { store.deleteAccount(space.id) }
         }
     }
 }

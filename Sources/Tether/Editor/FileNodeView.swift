@@ -4,12 +4,15 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 /// A node that shows a file: PDFs, images, text, office documents, audio and video are drawn
-/// with Quick Look, on the same page surface a written node uses.
+/// with Quick Look, on the same page surface a written node uses. Notes sit beside the file —
+/// they are the node's own text, so they are saved, searched, counted and undone like any page.
 struct FileNodeView: View {
     let node: NodeModel
     let space: SpaceModel
 
     @Environment(Store.self) private var store
+    @Environment(AppUI.self) private var ui
+    @Environment(EditorController.self) private var editor
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
@@ -19,22 +22,32 @@ struct FileNodeView: View {
         VStack(alignment: .leading, spacing: 14) {
             header(title: $node.title, url: available ? url : nil)
             LinkChips(space: space, anchor: Anchor(nodeID: node.id, blockID: nil))
-            Group {
-                if let url, available {
-                    QuickLookPreview(url: url)
-                } else {
-                    missing
+            GeometryReader { geo in
+                HStack(alignment: .top, spacing: 16) {
+                    Group {
+                        if let url, available {
+                            QuickLookPreview(url: url)
+                        } else {
+                            missing
+                        }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Theme.embedFill(scheme))
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.cardStroke(scheme), lineWidth: 1).allowsHitTesting(false))
+                    if !ui.fileNotesHidden {
+                        notes
+                            .frame(width: min(440, max(332, geo.size.width * 0.36)))
+                            .transition(.move(edge: .trailing).combined(with: .opacity))
+                    }
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Theme.embedFill(scheme))
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.cardStroke(scheme), lineWidth: 1).allowsHitTesting(false))
         }
         .padding(.horizontal, 24)
         .padding(.top, 22)
         .padding(.bottom, 20)
         .pageSurface()
+        .onAppear { editor.node = node }
     }
 
     private func header(title: Binding<String>, url: URL?) -> some View {
@@ -70,8 +83,49 @@ struct FileNodeView: View {
                 .buttonStyle(SoftButtonStyle())
                 .help(L("Show in Finder", "Finder에서 보기"))
             }
+            CategoryChip(node: node, space: space)
             AddLinkButton(space: space, anchor: Anchor(nodeID: node.id, blockID: nil), labeled: true)
+            IconButton(symbol: "sidebar.trailing", size: 13, active: !ui.fileNotesHidden,
+                       help: ui.fileNotesHidden ? L("Show notes", "메모 보기") : L("Hide notes", "메모 숨기기")) {
+                withAnimation(Motion.spring) { ui.fileNotesHidden.toggle() }
+            }
         }
+    }
+
+    /// The notes column: a small style bar and the node's text, written like any other page.
+    private var notes: some View {
+        let blocks = node.blocks.filter { $0.data.kind == .text }
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "note.text").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.accent)
+                SectionLabel(text: L("Notes", "메모"))
+                Spacer()
+                if node.wordCount > 0 {
+                    Text(L("\(node.wordCount) words", "단어 \(node.wordCount)개"))
+                        .font(.app(10.5)).monospacedDigit().foregroundStyle(.tertiary)
+                }
+            }
+            FormatToolbar(node: node, compact: true)
+            Rectangle().fill(Theme.cardStroke(scheme)).frame(height: 1)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(blocks) { block in
+                        TextBlockView(block: block, placeholder: blocks.count == 1
+                                      ? L("Write about this file — what it is, what to remember, what to do next.",
+                                          "이 파일에 대해 적어 보세요 — 무엇인지, 기억할 점, 다음에 할 일.")
+                                      : nil)
+                    }
+                    // Clicking the empty column below the text continues writing at the end.
+                    Color.clear
+                        .frame(height: 160)
+                        .contentShape(Rectangle())
+                        .onTapGesture { editor.focusEnd(of: node) }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 4)
+            }
+        }
+        .frame(maxHeight: .infinity, alignment: .top)
     }
 
     private var missing: some View {

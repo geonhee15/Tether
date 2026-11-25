@@ -82,6 +82,7 @@ struct NodeView: View {
                 Text(L("Edited ", "수정 ") + formatDate(node.updatedAt, date: .abbreviated, time: .shortened))
                     .font(.app(11.5))
                     .foregroundStyle(.tertiary)
+                CategoryChip(node: node, space: space)
                 AddLinkButton(space: space, anchor: Anchor(nodeID: node.id, blockID: nil), labeled: true)
             }
             LinkChips(space: space, anchor: Anchor(nodeID: node.id, blockID: nil))
@@ -113,9 +114,11 @@ struct NodeView: View {
 
 // MARK: Toolbar
 
-/// Floating glass bar: text styles on the left, Insert on the right.
+/// Floating glass bar: text styles on the left, Insert on the right. `compact` keeps only the
+/// styles that fit a narrow column (the notes beside a file) and drops Insert.
 struct FormatToolbar: View {
     let node: NodeModel
+    var compact = false
     @Environment(EditorController.self) private var editor
     @Environment(\.colorScheme) private var scheme
     @State private var showColor = false
@@ -124,13 +127,15 @@ struct FormatToolbar: View {
     var body: some View {
         let format = editor.format
         let style = format.style
-        HStack(spacing: 4) {
+        HStack(spacing: compact ? 2 : 4) {
             Group {
                 presetMenu(format)
                 divider
-                fontMenu(style)
-                sizeMenu(style)
-                divider
+                if !compact {
+                    fontMenu(style)
+                    sizeMenu(style)
+                    divider
+                }
                 IconButton(symbol: "bold", active: style.bold, help: L("Bold  ⌘B", "굵게  ⌘B")) { editor.perform { $0.toggle(\.bold) } }
                 IconButton(symbol: "italic", active: style.italic, help: L("Italic  ⌘I", "기울임  ⌘I")) { editor.perform { $0.toggle(\.italic) } }
                 IconButton(symbol: "underline", active: style.underline, help: L("Underline  ⌘U", "밑줄  ⌘U")) { editor.perform { $0.toggle(\.underline) } }
@@ -138,18 +143,20 @@ struct FormatToolbar: View {
                 divider
                 colorButton(style)
                 highlightButton(style)
-                divider
-                alignmentButtons(format.alignment)
+                if !compact {
+                    divider
+                    alignmentButtons(format.alignment)
+                }
                 IconButton(symbol: "eraser", help: L("Clear formatting  ⇧⌘\\", "서식 지우기  ⇧⌘\\")) { editor.perform { $0.clearFormatting() } }
             }
             .disabled(!format.hasEditor)
-            Spacer(minLength: 10)
-            InsertMenu(node: node)
+            Spacer(minLength: compact ? 0 : 10)
+            if !compact { InsertMenu(node: node) }
         }
-        .padding(.horizontal, 8)
-        .frame(height: 44)
-        .frame(maxWidth: 860)
-        .glass(radius: 22, frost: 0.6)
+        .padding(.horizontal, compact ? 0 : 8)
+        .frame(height: compact ? 32 : 44)
+        .frame(maxWidth: compact ? .infinity : 860)
+        .modifier(ToolbarSurface(floating: !compact))
         .zIndex(5)
     }
 
@@ -175,7 +182,7 @@ struct FormatToolbar: View {
                 Button(preset.label) { editor.perform { $0.applyPreset(preset) } }
             }
         } label: {
-            menuLabel(format.preset?.label ?? L("Custom", "사용자 지정"), width: 96)
+            menuLabel(format.preset?.label ?? L("Custom", "사용자 지정"), width: compact ? 82 : 96)
         }
         .menuStyle(.button)
         .buttonStyle(.plain)
@@ -269,6 +276,19 @@ struct FormatToolbar: View {
             IconButton(symbol: "text.alignleft", size: 12, active: alignment == 0, help: L("Align left", "왼쪽 정렬")) { editor.perform { $0.applyAlignment(.natural) } }
             IconButton(symbol: "text.aligncenter", size: 12, active: alignment == 1, help: L("Centre", "가운데 정렬")) { editor.perform { $0.applyAlignment(.center) } }
             IconButton(symbol: "text.alignright", size: 12, active: alignment == 2, help: L("Align right", "오른쪽 정렬")) { editor.perform { $0.applyAlignment(.right) } }
+        }
+    }
+}
+
+/// The full toolbar floats over the page on glass; the compact one is part of its column.
+private struct ToolbarSurface: ViewModifier {
+    var floating: Bool
+
+    func body(content: Content) -> some View {
+        if floating {
+            content.glass(radius: 22, frost: 0.6)
+        } else {
+            content
         }
     }
 }

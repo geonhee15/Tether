@@ -28,7 +28,16 @@ macOS notes app (SwiftUI + AppKit), built with `swiftc` via `./build.sh`. There 
   observation that drives autosave). Anything that edits the observed model is undoable for free —
   don't add `NSUndoManager` registrations, and keep `allowsUndo` off on the text views.
 
-- **Files**: a file node is a `NodeDoc` with `file` set; the bytes live in
+- **Accounts and Spaces**: an account owns up to `AppInfo.maxSpaces` Spaces (`Account.spaceIDs`, in
+  rail order). `Store.spaces` is keyed by Space id; the first Space of an account shares the
+  account's id, which is how data from before 0.5.0 is read. Create and delete Spaces through
+  `Store.addSpace` / `deleteSpace` (UI: `SpaceActions`) — never by editing `spaceIDs` directly.
+- **Saved data**: anything added to `SpaceSnapshot` or `Account` must decode when the key is missing
+  (see their `init(from:)`); a Space file that fails to decode is copied aside before it is replaced.
+- **Categories**: `SpaceModel.categories` plus `NodeModel.categoryID`. A node whose category no
+  longer exists counts as unfiled; deleting a category never deletes nodes.
+- **Files**: a file node is a `NodeDoc` with `file` set; its `blocks` are the notes shown beside the
+  file (text only — the compact `FormatToolbar` has no Insert); the bytes live in
   `files/<spaceID>/<uuid>.<ext>` and are shown with Quick Look. Deleting the node keeps the copy so
   Undo works; `Store.purgeOrphanFiles` removes leftovers when the history ends (launch, sign-out, quit).
 
@@ -50,7 +59,10 @@ preferences suite. Keep docs about what the app does, not about how any one pers
 exercises sign-in, duplicates, the 10-account limit and password replacement (the macOS owner
 prompt in `MacAuth` cannot be driven from a script); `TETHER_SCENE=undotest` makes five edits and
 undoes/redoes them; `TETHER_SCENE=awaketest` checks the power assertion with `pmset`;
-`TETHER_SCENE=filetest` imports a generated PDF, deletes and restores it and checks the clean-up.
+`TETHER_SCENE=filetest` imports a generated PDF, writes notes on it, deletes and restores it and
+checks the clean-up; `TETHER_SCENE=spacetest` fills an account to the Space limit, deletes, reloads
+from disk and signs back in (point `TETHER_DATA_DIR` at a folder written by an older build to check
+that it still opens); `TETHER_SCENE=cattest` files nodes under categories, deletes one and undoes it.
 All print to stdout:
 
 ```bash

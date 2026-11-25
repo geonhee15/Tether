@@ -1,12 +1,13 @@
 import Foundation
 import SwiftUI
 
-/// The part of a Space that Undo covers: its settings, nodes and links.
+/// The part of a Space that Undo covers: its settings, nodes, categories and links.
 /// Which tabs are open is navigation, not content, so it is left out.
 struct SpaceContent: Equatable {
     var info: SpaceInfo
     var nodes: [NodeDoc]
     var links: [RefLink]
+    var categories: [NodeCategory]
 
     @MainActor
     init(_ space: SpaceModel) {
@@ -20,6 +21,7 @@ struct SpaceContent: Equatable {
             return doc
         }
         links = space.links
+        categories = space.categories
     }
 
     /// The node where two states differ, if the difference is inside a node that exists in `other`.

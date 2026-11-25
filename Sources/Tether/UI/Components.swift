@@ -431,6 +431,22 @@ struct SpaceBadge: View {
     }
 }
 
+/// Round tile with an account's initial.
+struct AccountAvatar: View {
+    var name: String
+    var size: CGFloat = 36
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        Text(name.trimmingCharacters(in: .whitespaces).prefix(1).uppercased())
+            .font(.system(size: size * 0.42, weight: .bold, design: .rounded))
+            .foregroundStyle(.primary.opacity(0.85))
+            .frame(width: size, height: size)
+            .background(Circle().fill(Theme.chipFill(scheme)))
+            .overlay(Circle().strokeBorder(Theme.cardStroke(scheme).opacity(1.8), lineWidth: 1))
+    }
+}
+
 // MARK: Modifiers
 
 private struct HoverLift: ViewModifier {

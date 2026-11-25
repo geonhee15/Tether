@@ -75,36 +75,74 @@ struct SpaceHomeView: View {
             StatTile(symbol: "square.stack.3d.up", title: L("Nodes", "노드"), value: space.nodes.count)
             StatTile(symbol: "rectangle.3.group", title: L("Inserted objects", "삽입물"), value: space.embedCount)
             StatTile(symbol: "link", title: L("Links", "링크"), value: space.connectionCount)
+            if !space.categories.isEmpty {
+                StatTile(symbol: "folder", title: L("Categories", "카테고리"), value: space.categories.count)
+                    .transition(.scale(scale: 0.9).combined(with: .opacity))
+            }
         }
     }
 
     private var nodesSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SectionLabel(text: space.fileCount > 0 ? L("Nodes & files", "노드와 파일") : L("Nodes", "노드"))
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 230, maximum: 340), spacing: 12)], alignment: .leading, spacing: 12) {
-                ForEach(space.nodes.sorted { $0.updatedAt > $1.updatedAt }) { node in
-                    NodeCard(node: node, space: space)
-                        .transition(.scale(scale: 0.92).combined(with: .opacity))
-                }
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                SectionLabel(text: space.fileCount > 0 ? L("Nodes & files", "노드와 파일") : L("Nodes", "노드"))
+                Spacer()
                 Button {
-                    withAnimation(Motion.spring) { _ = space.addNode() }
+                    withAnimation(Motion.spring) { _ = space.addCategory(named: L("New category", "새 카테고리")) }
                 } label: {
-                    VStack(spacing: 8) {
-                        Image(systemName: "plus").font(.system(size: 18, weight: .medium))
-                        Text(L("New Node", "새 노드")).font(.app(12, .medium))
-                    }
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: 132)
-                    .background(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .strokeBorder(Color.secondary.opacity(0.35), style: StrokeStyle(lineWidth: 1.2, dash: [5, 4]))
-                    )
-                    .contentShape(Rectangle())
+                    Label(L("New Category", "새 카테고리"), systemImage: "folder.badge.plus").font(.app(11.5, .medium))
                 }
-                .buttonStyle(.plain)
-                .hoverLift(1.015)
+                .buttonStyle(SoftButtonStyle())
+                .help(L("Group this Space's nodes under a name", "이 Space의 노드를 이름 아래 묶기"))
+            }
+            if space.categories.isEmpty {
+                // No categories yet: one plain grid, as before.
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 230, maximum: 340), spacing: 12)], alignment: .leading, spacing: 12) {
+                    ForEach(space.nodes(in: nil)) { node in
+                        NodeCard(node: node, space: space)
+                            .transition(.scale(scale: 0.92).combined(with: .opacity))
+                    }
+                    newNodeCard
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 22) {
+                    ForEach(space.categories) { category in
+                        CategorySection(category: category, space: space, nodes: space.nodes(in: category.id)) { node in
+                            NodeCard(node: node, space: space)
+                        }
+                        .transition(.opacity.combined(with: .offset(y: 8)))
+                    }
+                    let loose = space.nodes(in: nil)
+                    if !loose.isEmpty {
+                        CategorySection(category: nil, space: space, nodes: loose) { node in
+                            NodeCard(node: node, space: space)
+                        }
+                        .transition(.opacity)
+                    }
+                }
+                .padding(.top, 2)
             }
         }
+    }
+
+    private var newNodeCard: some View {
+        Button {
+            withAnimation(Motion.spring) { _ = space.addNode() }
+        } label: {
+            VStack(spacing: 8) {
+                Image(systemName: "plus").font(.system(size: 18, weight: .medium))
+                Text(L("New Node", "새 노드")).font(.app(12, .medium))
+            }
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, minHeight: 132)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(Color.secondary.opacity(0.35), style: StrokeStyle(lineWidth: 1.2, dash: [5, 4]))
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .hoverLift(1.015)
     }
 }
 
@@ -142,6 +180,13 @@ private struct NodeCard: View {
     @State private var hovering = false
     @Environment(\.colorScheme) private var scheme
 
+    /// A written node shows its first lines; a file shows what it is, then its notes.
+    private var summary: String {
+        guard node.isFile else { return node.preview.isEmpty ? L("Empty node", "빈 노드") : node.preview }
+        let notes = node.textPreview
+        return L("File", "파일") + " · " + node.preview + (notes.isEmpty ? "" : "\n" + notes)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
@@ -156,7 +201,7 @@ private struct NodeCard: View {
                     Circle().fill(Theme.accent).frame(width: 6, height: 6).help(L("Open in a tab", "탭에 열려 있음"))
                 }
             }
-            Text(node.preview.isEmpty ? L("Empty node", "빈 노드") : (node.isFile ? L("File", "파일") + " · " + node.preview : node.preview))
+            Text(summary)
                 .font(.app(12))
                 .foregroundStyle(node.preview.isEmpty ? .tertiary : .secondary)
                 .lineSpacing(2)
@@ -184,6 +229,7 @@ private struct NodeCard: View {
         .animation(Motion.snappy, value: hovering)
         .contextMenu {
             Button(L("Open", "열기")) { withAnimation(Motion.spring) { space.open(node.id) } }
+            Menu(L("Category", "카테고리")) { CategoryMenuItems(node: node, space: space) }
             Divider()
             Button(L("Delete Node…", "노드 삭제…"), role: .destructive) { confirmDelete(node: node, in: space) }
         }
@@ -237,7 +283,8 @@ private struct ConnectionMap: View {
                 ForEach(nodes) { node in
                     if let position = positions[node.id] {
                         HStack(spacing: 6) {
-                            Image(systemName: node.symbol).font(.system(size: 10.5, weight: .semibold)).foregroundStyle(Theme.accent)
+                            Image(systemName: node.symbol).font(.system(size: 10.5, weight: .semibold))
+                                .foregroundStyle(space.category(of: node).map { Theme.spaceColor($0.colorIndex) } ?? Theme.accent)
                             Text(node.displayTitle).font(.app(11.5, .medium)).lineLimit(1)
                         }
                         .padding(.horizontal, 10)

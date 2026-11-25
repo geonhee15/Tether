@@ -32,6 +32,8 @@ echo "▶ capturing"
 shot login            login    TETHER_LANG=ko TETHER_APPEARANCE=dark
 shot password-reset   reset    TETHER_LANG=ko TETHER_APPEARANCE=light
 shot space-setup      setup    TETHER_LANG=ko TETHER_APPEARANCE=light
+shot account          account  TETHER_LANG=ko TETHER_APPEARANCE=light
+shot new-space        newspace TETHER_LANG=ko TETHER_APPEARANCE=dark
 shot home             home     TETHER_LANG=ko TETHER_APPEARANCE=light
 shot node             node0    TETHER_LANG=ko TETHER_APPEARANCE=light
 shot insert-menu      insert   TETHER_LANG=ko TETHER_APPEARANCE=light

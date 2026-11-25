@@ -38,6 +38,7 @@ struct RootView: View {
         .tint(Theme.accent)
         .environment(\.locale, Locale(identifier: AppSettings.shared.language.rawValue))
         .animation(Motion.spring, value: store.session.active)
+        .animation(Motion.spring, value: store.activeSpace?.id)
         .animation(Motion.spring, value: store.activeSpace?.info.isConfigured)
     }
 
@@ -55,6 +56,8 @@ struct RootView: View {
                         SettingsView()
                     case .spaceSettings:
                         if let space = store.activeSpace { SpaceSetupView(space: space, onboarding: false) }
+                    case .account:
+                        if let account = store.activeAccount { AccountView(account: account) }
                     case .addAccount:
                         LoginView(isSheet: true)
                     }
@@ -254,6 +257,7 @@ private struct NodeTab: View {
         .animation(Motion.snappy, value: hovering)
         .contextMenu {
             Button(L("Close Tab", "탭 닫기")) { withAnimation(Motion.spring) { space.closeTab(node.id) } }
+            Menu(L("Category", "카테고리")) { CategoryMenuItems(node: node, space: space) }
             Divider()
             Button(L("Delete Node…", "노드 삭제…"), role: .destructive) {
                 confirmDelete(node: node, in: space)
@@ -278,23 +282,32 @@ func confirmDelete(node: NodeModel, in space: SpaceModel) {
 
 // MARK: Space rail
 
-/// Vertical switcher for every signed-in Space, plus "add account" and Settings.
+/// Vertical switcher: the account in front, its Spaces, then keep-awake and Settings.
 struct SpaceRail: View {
     @Environment(Store.self) private var store
     @Environment(AppUI.self) private var ui
+    @Environment(\.colorScheme) private var scheme
     @Namespace private var namespace
 
     var body: some View {
         VStack(spacing: 10) {
-            ForEach(store.loggedInSpaces) { space in
-                railItem(space)
-            }
-            if store.loggedInSpaces.count < AppInfo.maxAccounts {
-                IconButton(symbol: "plus", size: 14, side: 38, help: L("Add or sign in to another account", "다른 계정 추가 / 로그인")) {
-                    ui.present(.addAccount)
+            accountButton
+            Capsule().fill(Theme.cardStroke(scheme).opacity(1.6)).frame(width: 22, height: 1)
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 10) {
+                    ForEach(store.activeSpaces) { space in
+                        railItem(space)
+                    }
+                    if let account = store.activeAccount, store.canAddSpace(to: account.id) {
+                        IconButton(symbol: "plus", size: 14, side: 38,
+                                   help: L("New Space  ⇧⌘N", "새 Space  ⇧⌘N")) {
+                            SpaceActions.create(in: account.id, store: store, ui: ui)
+                        }
+                    }
                 }
+                .padding(.vertical, 3)
+                .frame(maxWidth: .infinity)
             }
-            Spacer(minLength: 8)
             IconButton(symbol: "cup.and.saucer", size: 14, side: 38, help: L("Keep awake mode  ⇧⌘K", "절전 방지 모드  ⇧⌘K")) {
                 ui.setAwake(true)
             }
@@ -310,10 +323,52 @@ struct SpaceRail: View {
         .padding(.bottom, 4)
     }
 
+    /// Whose Spaces these are. The menu switches between signed-in accounts.
+    private var accountButton: some View {
+        let active = store.activeAccount
+        return Menu {
+            Section(L("Signed-in accounts", "로그인된 계정")) {
+                ForEach(store.session.loggedIn, id: \.self) { id in
+                    if let account = store.account(id) {
+                        Button {
+                            withAnimation(Motion.spring) { store.switchTo(id) }
+                        } label: {
+                            if id == active?.id {
+                                Label(account.username, systemImage: "checkmark")
+                            } else {
+                                Text(account.username)
+                            }
+                        }
+                    }
+                }
+            }
+            Divider()
+            Button(L("Account & Spaces…", "계정과 Space 관리…")) { ui.present(.account) }
+            Button(L("Add or Sign In to Another Account…", "다른 계정 추가 / 로그인…")) { ui.present(.addAccount) }
+                .disabled(!store.canAddAccount && store.signedOutAccounts.isEmpty)
+            if let active {
+                Divider()
+                Button(L("Sign Out “\(active.username)”", "“\(active.username)” 로그아웃")) {
+                    withAnimation(Motion.spring) { store.logOut(active.id) }
+                }
+            }
+        } label: {
+            AccountAvatar(name: active?.username ?? "", size: 36)
+                .contentShape(Circle())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .hoverLift(1.07)
+        .help(L("Account: \(active?.username ?? "")", "계정: \(active?.username ?? "")"))
+    }
+
     private func railItem(_ space: SpaceModel) -> some View {
-        let active = store.session.active == space.id
+        let active = store.activeSpace?.id == space.id
+        let siblings = store.activeSpaces
         return Button {
-            withAnimation(Motion.spring) { store.switchTo(space.id) }
+            withAnimation(Motion.spring) { store.selectSpace(space.id) }
         } label: {
             SpaceBadge(symbol: space.info.symbol, color: space.color, size: 36)
                 .saturation(active ? 1 : 0.75)
@@ -332,11 +387,52 @@ struct SpaceRail: View {
         .help(space.info.name + (space.info.subtitle.isEmpty ? "" : " — " + space.info.subtitle))
         .contextMenu {
             Button(L("Space Settings…", "Space 설정…")) {
-                store.switchTo(space.id)
+                store.selectSpace(space.id)
                 ui.present(.spaceSettings)
             }
             Divider()
-            Button(L("Sign Out", "로그아웃")) { withAnimation(Motion.spring) { store.logOut(space.id) } }
+            Button(L("Move Up", "위로 이동")) { withAnimation(Motion.spring) { store.moveSpace(space.id, by: -1) } }
+                .disabled(siblings.first?.id == space.id)
+            Button(L("Move Down", "아래로 이동")) { withAnimation(Motion.spring) { store.moveSpace(space.id, by: 1) } }
+                .disabled(siblings.last?.id == space.id)
+            Divider()
+            Button(L("Delete Space…", "Space 삭제…"), role: .destructive) {
+                SpaceActions.confirmDelete(space, store: store, ui: ui)
+            }
+            .disabled(siblings.count < 2)
+        }
+    }
+}
+
+/// Creating and deleting Spaces, shared by the rail, the menus and the account sheet.
+@MainActor
+enum SpaceActions {
+    /// Adds a Space to the account; its setup screen comes up next.
+    static func create(in accountID: UUID, store: Store, ui: AppUI) {
+        ui.dismiss()
+        do {
+            try withAnimation(Motion.spring) { _ = try store.addSpace(to: accountID) }
+        } catch let failure as AuthError {
+            ui.flash(failure.message, symbol: "exclamationmark.triangle.fill")
+        } catch {
+            ui.flash(error.localizedDescription, symbol: "exclamationmark.triangle.fill")
+        }
+    }
+
+    static func confirmDelete(_ space: SpaceModel, store: Store, ui: AppUI) {
+        let name = space.info.name.isEmpty ? L("this Space", "이 Space") : "“\(space.info.name)”"
+        let alert = NSAlert()
+        alert.messageText = L("Delete \(name)?", "\(name)을(를) 삭제할까요?")
+        alert.informativeText = L("Its \(space.nodes.count) nodes, its files and its links will be removed from this Mac. This can't be undone.",
+                                  "노드 \(space.nodes.count)개와 파일, 링크가 모두 이 Mac에서 삭제되며 되돌릴 수 없어요.")
+        alert.alertStyle = .critical
+        alert.addButton(withTitle: L("Delete", "삭제"))
+        alert.addButton(withTitle: L("Cancel", "취소"))
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        withAnimation(Motion.spring) {
+            if store.deleteSpace(space.id) {
+                ui.flash(L("Space deleted", "Space를 삭제했어요"), symbol: "trash.circle.fill")
+            }
         }
     }
 }
@@ -350,8 +446,9 @@ struct StatusFooter: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            if let file = space.activeNode?.file {
-                Label(file.summary, systemImage: "paperclip")
+            if let node = space.activeNode, let file = node.file {
+                Label(file.summary + (node.wordCount > 0 ? "  ·  " + L("notes: \(node.wordCount) words", "메모 단어 \(node.wordCount)개") : ""),
+                      systemImage: "paperclip")
             } else if let node = space.activeNode {
                 Label(L("\(node.wordCount) words", "단어 \(node.wordCount)개"), systemImage: "text.alignleft")
             } else {

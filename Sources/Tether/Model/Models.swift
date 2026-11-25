@@ -2,14 +2,45 @@ import Foundation
 
 // MARK: Accounts
 
-/// A local account. Each account owns exactly one Space.
+/// A local account. An account owns up to `AppInfo.maxSpaces` Spaces.
 struct Account: Codable, Identifiable, Equatable {
-    var id = UUID()
+    var id: UUID
     var username: String
-    var email: String = ""
+    var email: String
     var passwordSalt: String
     var passwordHash: String
-    var createdAt = Date()
+    var createdAt: Date
+    /// The account's Spaces, in the order they appear in the rail. Never empty.
+    var spaceIDs: [UUID]
+    /// The Space shown when this account is in front.
+    var activeSpace: UUID?
+
+    init(username: String, email: String = "", passwordSalt: String, passwordHash: String) {
+        let id = UUID()
+        self.id = id
+        self.username = username
+        self.email = email
+        self.passwordSalt = passwordSalt
+        self.passwordHash = passwordHash
+        createdAt = Date()
+        // The first Space shares the account's identifier, which is also how accounts saved
+        // before an account could hold several Spaces are read.
+        spaceIDs = [id]
+        activeSpace = id
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        username = try c.decode(String.self, forKey: .username)
+        email = try c.decodeIfPresent(String.self, forKey: .email) ?? ""
+        passwordSalt = try c.decode(String.self, forKey: .passwordSalt)
+        passwordHash = try c.decode(String.self, forKey: .passwordHash)
+        createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
+        let saved = try c.decodeIfPresent([UUID].self, forKey: .spaceIDs) ?? []
+        spaceIDs = saved.isEmpty ? [id] : saved
+        activeSpace = try c.decodeIfPresent(UUID.self, forKey: .activeSpace)
+    }
 }
 
 /// Which accounts are signed in right now (several can be at once) and which one is in front.
@@ -30,13 +61,46 @@ struct SpaceInfo: Codable, Equatable {
     var isConfigured = false
 }
 
+/// A named group of nodes inside a Space.
+struct NodeCategory: Codable, Identifiable, Equatable {
+    var id = UUID()
+    var name: String
+    var colorIndex: Int = 0
+}
+
 /// Everything a Space stores on disk.
 struct SpaceSnapshot: Codable {
     var info: SpaceInfo
     var nodes: [NodeDoc] = []
     var links: [RefLink] = []
+    var categories: [NodeCategory] = []
     var openTabs: [UUID] = []
     var activeTab: UUID?
+    /// Categories folded shut on the Space home.
+    var collapsedCategories: [UUID] = []
+
+    init(info: SpaceInfo, nodes: [NodeDoc] = [], links: [RefLink] = [], categories: [NodeCategory] = [],
+         openTabs: [UUID] = [], activeTab: UUID? = nil, collapsedCategories: [UUID] = []) {
+        self.info = info
+        self.nodes = nodes
+        self.links = links
+        self.categories = categories
+        self.openTabs = openTabs
+        self.activeTab = activeTab
+        self.collapsedCategories = collapsedCategories
+    }
+
+    /// Keys added after the first release are optional, so older files keep opening.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        info = try c.decode(SpaceInfo.self, forKey: .info)
+        nodes = try c.decodeIfPresent([NodeDoc].self, forKey: .nodes) ?? []
+        links = try c.decodeIfPresent([RefLink].self, forKey: .links) ?? []
+        categories = try c.decodeIfPresent([NodeCategory].self, forKey: .categories) ?? []
+        openTabs = try c.decodeIfPresent([UUID].self, forKey: .openTabs) ?? []
+        activeTab = try c.decodeIfPresent(UUID.self, forKey: .activeTab)
+        collapsedCategories = try c.decodeIfPresent([UUID].self, forKey: .collapsedCategories) ?? []
+    }
 }
 
 // MARK: Nodes & blocks
@@ -47,9 +111,12 @@ struct NodeDoc: Codable, Identifiable, Equatable {
     var symbol: String = "doc.text"
     var createdAt = Date()
     var updatedAt = Date()
+    /// A written node's page; on a file node, the notes kept beside the file.
     var blocks: [Block] = [Block(kind: .text)]
     /// Set when this node shows a file instead of a written page.
     var file: FileAttachment?
+    /// The category this node is filed under, if any.
+    var categoryID: UUID?
 }
 
 /// A file kept inside the Space. The bytes are copied into the Space's own folder, so the node

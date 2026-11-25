@@ -47,7 +47,7 @@ struct LoginView: View {
 
     private var subtitle: String {
         if mode == .reset { return L("Choose a new password for an account on this Mac.", "이 Mac에 있는 계정의 새 비밀번호를 정하세요.") }
-        return isSheet ? L("Add another Space", "다른 Space 추가")
+        return isSheet ? L("Add or sign in to another account", "다른 계정 추가 / 로그인")
                        : L("Notes, numbers and people — tethered together.", "노트와 수치, 사람을 하나로 잇는 공간")
     }
 
@@ -151,8 +151,8 @@ struct LoginView: View {
             }
 
             if mode == .signUp {
-                Text(L("\(store.accounts.count) of \(AppInfo.maxAccounts) accounts used · each account is its own Space",
-                       "계정 \(store.accounts.count)/\(AppInfo.maxAccounts)개 사용 중 · 계정마다 하나의 Space"))
+                Text(L("\(store.accounts.count) of \(AppInfo.maxAccounts) accounts used · up to \(AppInfo.maxSpaces) Spaces in each",
+                       "계정 \(store.accounts.count)/\(AppInfo.maxAccounts)개 사용 중 · 계정마다 Space 최대 \(AppInfo.maxSpaces)개"))
                     .font(.app(11))
                     .foregroundStyle(.tertiary)
                     .transition(.opacity)

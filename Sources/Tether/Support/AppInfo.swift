@@ -7,6 +7,8 @@ enum AppInfo {
     static let developerURL = URL(string: "https://github.com/geonhee15")!
     static let repositoryURL = URL(string: "https://github.com/geonhee15/Tether")!
     static let maxAccounts = 10
+    /// Spaces one account can hold.
+    static let maxSpaces = 10
 
     static var version: String {
         (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "dev"

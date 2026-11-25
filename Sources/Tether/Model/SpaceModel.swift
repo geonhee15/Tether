@@ -30,6 +30,7 @@ final class NodeModel: Identifiable {
     var blocks: [BlockModel]
     /// Non-nil for a node that shows a file rather than a written page.
     var file: FileAttachment?
+    var categoryID: UUID?
 
     init(_ doc: NodeDoc) {
         id = doc.id
@@ -39,11 +40,12 @@ final class NodeModel: Identifiable {
         updatedAt = doc.updatedAt
         blocks = doc.blocks.map(BlockModel.init)
         file = doc.file
+        categoryID = doc.categoryID
         if blocks.isEmpty { blocks = [BlockModel(Block(kind: .text))] }
     }
 
     var snapshot: NodeDoc {
-        NodeDoc(id: id, title: title, symbol: symbol, createdAt: createdAt, updatedAt: updatedAt, blocks: blocks.map(\.data), file: file)
+        NodeDoc(id: id, title: title, symbol: symbol, createdAt: createdAt, updatedAt: updatedAt, blocks: blocks.map(\.data), file: file, categoryID: categoryID)
     }
 
     var isFile: Bool { file != nil }
@@ -56,12 +58,14 @@ final class NodeModel: Identifiable {
         blocks.filter { $0.data.kind == .text }.map(\.plainText).joined(separator: "\n")
     }
 
-    var preview: String {
-        if let file { return file.summary }
+    /// A few lines of the written text: the page itself, or a file's notes.
+    var textPreview: String {
         let text = plainText.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }.prefix(3).joined(separator: " · ")
         return String(text.prefix(140))
     }
+
+    var preview: String { file?.summary ?? textPreview }
 
     var wordCount: Int {
         plainText.split { $0.isWhitespace || $0.isNewline }.count
@@ -93,6 +97,7 @@ final class NodeModel: Identifiable {
         if title != doc.title { title = doc.title }
         if symbol != doc.symbol { symbol = doc.symbol }
         if file != doc.file { file = doc.file }
+        if categoryID != doc.categoryID { categoryID = doc.categoryID }
         let existing = Dictionary(uniqueKeysWithValues: blocks.map { ($0.id, $0) })
         var result: [BlockModel] = []
         for data in doc.blocks {
@@ -147,22 +152,28 @@ final class SpaceModel: Identifiable {
     var info: SpaceInfo
     var nodes: [NodeModel]
     var links: [RefLink]
+    var categories: [NodeCategory]
     var openTabs: [UUID]
     /// nil shows the Space home.
     var activeTab: UUID?
+    var collapsedCategories: Set<UUID>
 
     init(id: UUID, snapshot: SpaceSnapshot) {
         self.id = id
         info = snapshot.info
         nodes = snapshot.nodes.map(NodeModel.init)
         links = snapshot.links
+        categories = snapshot.categories
+        collapsedCategories = Set(snapshot.collapsedCategories)
         let known = Set(snapshot.nodes.map(\.id))
         openTabs = snapshot.openTabs.filter(known.contains)
         activeTab = snapshot.activeTab.flatMap { known.contains($0) ? $0 : nil }
     }
 
     func snapshot() -> SpaceSnapshot {
-        SpaceSnapshot(info: info, nodes: nodes.map(\.snapshot), links: links, openTabs: openTabs, activeTab: activeTab)
+        SpaceSnapshot(info: info, nodes: nodes.map(\.snapshot), links: links, categories: categories,
+                      openTabs: openTabs, activeTab: activeTab,
+                      collapsedCategories: collapsedCategories.sorted { $0.uuidString < $1.uuidString })
     }
 
     /// Replaces settings, nodes and links with a saved state (Undo / Redo). Live node and block
@@ -185,6 +196,7 @@ final class SpaceModel: Identifiable {
         }
         if result.map(\.id) != nodes.map(\.id) { nodes = result }
         if links != content.links { links = content.links }
+        if categories != content.categories { categories = content.categories }
         let known = Set(result.map(\.id))
         if openTabs.contains(where: { !known.contains($0) }) { openTabs = openTabs.filter(known.contains) }
         if let active = activeTab, !known.contains(active) { activeTab = openTabs.last }
@@ -202,8 +214,8 @@ final class SpaceModel: Identifiable {
     // MARK: Nodes & tabs
 
     @discardableResult
-    func addNode() -> NodeModel {
-        let node = NodeModel(NodeDoc())
+    func addNode(in category: UUID? = nil) -> NodeModel {
+        let node = NodeModel(NodeDoc(categoryID: self.category(category)?.id))
         nodes.append(node)
         openTabs.append(node.id)
         activeTab = node.id
@@ -222,6 +234,51 @@ final class SpaceModel: Identifiable {
     }
 
     var fileCount: Int { nodes.filter(\.isFile).count }
+
+    // MARK: Categories
+
+    func category(_ id: UUID?) -> NodeCategory? {
+        guard let id else { return nil }
+        return categories.first { $0.id == id }
+    }
+
+    /// The category a node is filed under; nil when it has none (or the category is gone).
+    func category(of node: NodeModel) -> NodeCategory? { category(node.categoryID) }
+
+    /// Nodes filed under a category, most recently edited first. `nil` gives the unfiled ones.
+    func nodes(in categoryID: UUID?) -> [NodeModel] {
+        nodes.filter { category($0.categoryID)?.id == categoryID }.sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    @discardableResult
+    func addCategory(named name: String) -> NodeCategory {
+        let used = Set(categories.map(\.colorIndex))
+        let color = Theme.spaceColors.indices.first { !used.contains($0) } ?? categories.count % Theme.spaceColors.count
+        let category = NodeCategory(name: name, colorIndex: color)
+        categories.append(category)
+        return category
+    }
+
+    func updateCategory(_ id: UUID, _ change: (inout NodeCategory) -> Void) {
+        guard let index = categories.firstIndex(where: { $0.id == id }) else { return }
+        change(&categories[index])
+    }
+
+    func moveCategory(_ id: UUID, by offset: Int) {
+        guard let index = categories.firstIndex(where: { $0.id == id }), categories.indices.contains(index + offset) else { return }
+        categories.swapAt(index, index + offset)
+    }
+
+    /// Removes the category; its nodes stay in the Space, unfiled.
+    func deleteCategory(_ id: UUID) {
+        for node in nodes where node.categoryID == id { node.categoryID = nil }
+        categories.removeAll { $0.id == id }
+        collapsedCategories.remove(id)
+    }
+
+    func setCollapsed(_ collapsed: Bool, category id: UUID) {
+        if collapsed { collapsedCategories.insert(id) } else { collapsedCategories.remove(id) }
+    }
 
     func open(_ nodeID: UUID) {
         guard nodes.contains(where: { $0.id == nodeID }) else { return }

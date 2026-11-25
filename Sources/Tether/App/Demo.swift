@@ -30,7 +30,7 @@ enum Demo {
         let studio = store.loggedInSpaces.first
         func open(_ index: Int) {
             guard let studio, studio.nodes.indices.contains(index) else { return }
-            store.switchTo(studio.id)
+            store.selectSpace(studio.id)
             studio.open(studio.nodes[index].id)
         }
         switch scene {
@@ -43,6 +43,18 @@ enum Demo {
             try? store.signUp(username: "atelier", password: "demo", email: "")
         case "home":
             studio?.activeTab = nil
+        case "account":
+            studio?.activeTab = nil
+            ui.overlay = .account
+        case "spacesettings":
+            studio?.activeTab = nil
+            ui.overlay = .spaceSettings
+        case "newspace":
+            if let account = store.activeAccount { _ = try? store.addSpace(to: account.id) }
+        case "spacetest":
+            spaceTest(store: store)
+        case "cattest":
+            categoryTest(store: store)
         case "node0": open(0)
         case "node1": open(1)
         case "node2": open(2)
@@ -115,7 +127,7 @@ enum Demo {
     /// and logs the resulting document, so the editing paths can be checked without a human.
     private static func selfTest(store: Store, editor: EditorController) {
         guard let space = store.loggedInSpaces.first else { return }
-        store.switchTo(space.id)
+        store.selectSpace(space.id)
         let node = space.addNode()
         node.title = "Self test"
         func after(_ seconds: Double, _ work: @escaping () -> Void) {
@@ -169,7 +181,7 @@ enum Demo {
     /// undoes and redoes them and checks a deleted node comes back. Prints the state at each step.
     private static func undoTest(store: Store, editor: EditorController) {
         guard let space = store.loggedInSpaces.first else { return }
-        store.switchTo(space.id)
+        store.selectSpace(space.id)
         let before = space.nodes.count
         var node: NodeModel?
         func after(_ seconds: Double, _ work: @escaping () -> Void) {
@@ -270,13 +282,16 @@ enum Demo {
         attempt("create account #\(AppInfo.maxAccounts + 1)") { try store.signUp(username: "overflow", password: "demo", email: "") }
         print("authtest: accounts =", store.accounts.count, "signed in =", store.session.loggedIn.count)
         if let studio = store.account(named: "studio") {
-            let nodesBefore = store.spaces[studio.id]?.nodes.count ?? -1
+            let nodesBefore = store.spaces(of: studio.id).first?.nodes.count ?? -1
+            let spacesBefore = store.spaces(of: studio.id).count
             attempt("reset password") { try store.setPassword(for: studio.id, to: "fresh-pass") }
             attempt("reset to empty password") { try store.setPassword(for: studio.id, to: "") }
             store.logOut(studio.id)
             attempt("old password after reset") { try store.signIn(username: "studio", password: "demo") }
             attempt("new password after reset") { try store.signIn(username: "studio", password: "fresh-pass") }
-            print("authtest: nodes kept across reset =", store.spaces[studio.id]?.nodes.count == nodesBefore, "· Mac owner check available =", MacAuth.isAvailable)
+            print("authtest: nodes kept across reset =", store.spaces(of: studio.id).first?.nodes.count == nodesBefore,
+                  "· every Space back after sign-in =", store.spaces(of: studio.id).count == spacesBefore,
+                  "· Mac owner check available =", MacAuth.isAvailable)
         }
         let stored = (try? String(contentsOf: store.dataDir.appendingPathComponent("accounts.json"), encoding: .utf8)) ?? ""
         print("authtest: plain password on disk =", stored.contains("\"demo\""))
@@ -288,16 +303,18 @@ enum Demo {
         let korean = AppSettings.shared.language == .ko
         func t(_ en: String, _ ko: String) -> String { korean ? ko : en }
 
+        // One account holding three Spaces, and a second account to switch to.
         try? store.signUp(username: "studio", password: "demo", email: "")
-        try? store.signUp(username: "journal", password: "demo", email: "")
-        try? store.signUp(username: "reading", password: "demo", email: "")
-        let spaces = store.loggedInSpaces
-        guard spaces.count == 3 else { return }
+        guard let owner = store.activeAccount, let studio = store.activeSpace,
+              let journal = try? store.addSpace(to: owner.id), let reading = try? store.addSpace(to: owner.id) else { return }
+        try? store.signUp(username: "archive", password: "demo", email: "")
+        let archive = store.activeSpace
+        archive?.info = SpaceInfo(name: t("Archive", "보관함"), subtitle: t("Finished work", "끝난 작업들"), symbol: "briefcase.fill", colorIndex: 7, isConfigured: true)
+        let spaces = [studio, journal, reading] + (archive.map { [$0] } ?? [])
 
-        spaces[1].info = SpaceInfo(name: t("Journal", "저널"), subtitle: t("Daily notes", "매일의 기록"), symbol: "leaf.fill", colorIndex: 3, isConfigured: true)
-        spaces[2].info = SpaceInfo(name: t("Reading", "독서"), subtitle: t("Books and ideas", "책과 아이디어"), symbol: "book.fill", colorIndex: 5, isConfigured: true)
+        journal.info = SpaceInfo(name: t("Journal", "저널"), subtitle: t("Daily notes", "매일의 기록"), symbol: "leaf.fill", colorIndex: 3, isConfigured: true)
+        reading.info = SpaceInfo(name: t("Reading", "독서"), subtitle: t("Books and ideas", "책과 아이디어"), symbol: "book.fill", colorIndex: 5, isConfigured: true)
 
-        let studio = spaces[0]
         studio.info = SpaceInfo(name: t("Studio", "스튜디오"), subtitle: t("Side projects & collaborators", "사이드 프로젝트와 협업"),
                                 about: t("Plans, numbers and the people involved — kept in one place and linked together.",
                                          "계획과 수치, 함께하는 사람들을 한곳에 모아 서로 연결해 둔 공간."),
@@ -404,15 +421,168 @@ enum Demo {
             RefLink(from: Anchor(nodeID: plan.id, blockID: milestones.id), to: Anchor(nodeID: board.id, blockID: hours.id)),
             RefLink(from: Anchor(nodeID: board.id, blockID: signals.id), to: Anchor(nodeID: people.id, blockID: profile.id)),
         ]
+        // Categories: every node is filed under one.
+        let planning = studio.addCategory(named: t("Planning", "기획"))
+        let peopleGroup = studio.addCategory(named: t("People", "사람"))
+        let numbers = studio.addCategory(named: t("Numbers", "수치"))
+        studio.updateCategory(planning.id) { $0.colorIndex = 0 }
+        studio.updateCategory(peopleGroup.id) { $0.colorIndex = 6 }
+        studio.updateCategory(numbers.id) { $0.colorIndex = 2 }
+        nodes[0].categoryID = planning.id
+        nodes[1].categoryID = peopleGroup.id
+        nodes[2].categoryID = numbers.id
         // A file node, made on the spot so no binary has to live in the repository.
         if let pdf = makeSamplePDF(korean: korean), let brief = try? store.importFile(at: pdf, into: studio) {
             studio.links.append(RefLink(from: Anchor(nodeID: brief.id, blockID: nil), to: Anchor(nodeID: plan.id, blockID: nil)))
+            brief.categoryID = planning.id
+            brief.blocks = [BlockModel(Block(kind: .text, runs: [
+                TextRun(t: t("Before the sync\n", "싱크 전에\n"), b: true, z: 17),
+                TextRun(t: t("The readiness numbers here are ", "여기 준비도 수치는 ")),
+                TextRun(t: t("two weeks old", "2주 전 기준"), h: "FFE0408C"),
+                TextRun(t: t(" — the Launch Plan table has the current ones.\n\n", " — 최신 값은 출시 계획의 표에 있어요.\n\n")),
+                TextRun(t: t("To do\n", "할 일\n"), b: true, z: 17),
+                TextRun(t: t("Ask Jordan whether ", "Jordan에게 ")),
+                TextRun(t: t("step 3", "3번 단계"), b: true),
+                TextRun(t: t(" can move a week earlier.\n", "를 한 주 앞당길 수 있는지 묻기.\n")),
+                TextRun(t: t("Trim “Why now” to two sentences.", "‘왜 지금인가’를 두 문장으로 줄이기."), i: true),
+            ]))]
             try? FileManager.default.removeItem(at: pdf)
         }
         studio.activeTab = nil
-        store.switchTo(studio.id)
+
+        // The other Spaces get a little content of their own, so switching shows something.
+        func page(_ title: String, _ symbol: String, _ text: String) -> NodeModel {
+            NodeModel(NodeDoc(title: title, symbol: symbol, blocks: [Block(kind: .text, runs: [TextRun(t: text)])]))
+        }
+        journal.nodes = [
+            page(t("This week", "이번 주"), "calendar", t("Three things that went well, one to change.", "잘된 일 세 가지, 바꿀 것 한 가지.")),
+            page(t("Ideas", "아이디어"), "lightbulb", t("Loose thoughts, sorted on Sundays.", "흩어진 생각들, 일요일마다 정리.")),
+        ]
+        reading.nodes = [
+            page(t("Reading list", "읽을 책"), "book", t("Up next, in order.", "다음에 읽을 책, 순서대로.")),
+        ]
+        store.switchTo(owner.id)
+        store.selectSpace(studio.id)
         store.flushAll()
         for space in spaces { store.resetHistory(for: space) }
+    }
+
+    /// Checks what was read from disk (including data saved before an account could hold
+    /// several Spaces), then fills an account to the limit, deletes, signs out and reloads.
+    private static func spaceTest(store: Store) {
+        func attempt(_ label: String, _ work: () throws -> Void) {
+            do { try work(); print("spacetest: \(label) → ok") } catch { print("spacetest: \(label) → \(error)") }
+        }
+        for account in store.accounts {
+            let loaded = store.spaces(of: account.id)
+            print("spacetest: read “\(account.username)” → spaces \(account.spaceIDs.count) · first shares the account id = \(account.spaceIDs.first == account.id)",
+                  "· loaded \(loaded.count) · names \(loaded.map(\.info.name)) · nodes \(loaded.map { $0.nodes.count })",
+                  "· files \(loaded.map(\.fileCount)) · categories \(loaded.map { $0.categories.count })")
+        }
+        guard let account = store.account(named: "studio"), let first = store.spaces(of: account.id).first else { return }
+        store.switchTo(account.id)
+        let firstNodes = first.nodes.count
+        let before = store.spaces(of: account.id).count
+        var made: [SpaceModel] = []
+        for number in (before + 1)...AppInfo.maxSpaces {
+            attempt("add Space #\(number)") {
+                let space = try store.addSpace(to: account.id)
+                space.info.name = "Extra \(number)"
+                space.info.isConfigured = true
+                made.append(space)
+            }
+        }
+        attempt("add Space #\(AppInfo.maxSpaces + 1)") { _ = try store.addSpace(to: account.id) }
+        print("spacetest: spaces =", store.spaces(of: account.id).count, "· newest is in front =", store.activeSpace?.id == made.last?.id)
+        guard made.count >= 2 else { return }
+        made[0].addNode().title = "Only here"
+        print("spacetest: a node added to one Space → that Space \(made[0].nodes.count) · first Space unchanged =", first.nodes.count == firstNodes)
+        if let pdf = makeSamplePDF(korean: false) {
+            _ = try? store.importFile(at: pdf, into: made[1])
+            try? FileManager.default.removeItem(at: pdf)
+        }
+        let doomed = made[1]
+        let doomedFiles = store.filesDirectory(for: doomed.id).path
+        let doomedJSON = store.dataDir.appendingPathComponent("spaces/\(doomed.id.uuidString).json").path
+        store.flushAll()
+        print("spacetest: Space with a file saved → json =", FileManager.default.fileExists(atPath: doomedJSON), "· files folder =", FileManager.default.fileExists(atPath: doomedFiles))
+        store.selectSpace(doomed.id)
+        print("spacetest: delete it →", store.deleteSpace(doomed.id), "· spaces =", store.spaces(of: account.id).count,
+              "· json gone =", !FileManager.default.fileExists(atPath: doomedJSON), "· files gone =", !FileManager.default.fileExists(atPath: doomedFiles),
+              "· a neighbour is in front =", store.activeSpace != nil && store.activeSpace?.id != doomed.id)
+        store.selectSpace(first.id)
+        print("spacetest: select the first Space → in front =", store.activeSpace?.id == first.id, "· name", store.activeSpace?.info.name ?? "-")
+        store.moveSpace(made[0].id, by: -1)
+        if let single = store.accounts.first(where: { $0.spaceIDs.count == 1 }), let only = single.spaceIDs.first {
+            print("spacetest: delete an account's only Space →", store.deleteSpace(only) ? "deleted (wrong)" : "refused (right)")
+        }
+        store.flushAll()
+        // A second store reads the same folder, the way the next launch would.
+        let reloaded = Store()
+        let again = reloaded.spaces(of: account.id)
+        print("spacetest: reloaded from disk → spaces \(again.count) · order kept =", again.map(\.id) == store.spaces(of: account.id).map(\.id),
+              "· first Space nodes kept =", again.first { $0.id == first.id }?.nodes.count == firstNodes,
+              "· “Only here” kept =", again.contains { $0.nodes.contains { $0.title == "Only here" } },
+              "· front Space kept =", reloaded.activeSpace?.id == first.id)
+        store.logOut(account.id)
+        print("spacetest: signed out → loaded Spaces of the account =", store.spaces(of: account.id).count)
+        attempt("sign in again") { try store.signIn(username: "studio", password: "demo") }
+        print("spacetest: signed in → loaded \(store.spaces(of: account.id).count) · front Space is the first =", store.activeSpace?.id == first.id,
+              "· nodes", store.activeSpace?.nodes.count ?? -1)
+    }
+
+    /// Makes categories, files nodes under them, deletes one and brings it back with Undo.
+    private static func categoryTest(store: Store) {
+        guard let space = store.loggedInSpaces.first, let node = space.nodes.first else { return }
+        store.selectSpace(space.id)
+        func after(_ seconds: Double, _ work: @escaping () -> Void) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
+        }
+        let base = space.categories.count, nodesBefore = space.nodes.count
+        let original = node.categoryID
+        var alpha: NodeCategory?, beta: NodeCategory?
+        func state(_ label: String) {
+            let names = space.categories.dropFirst(base).map(\.name)
+            print("cattest: \(label) → new categories \(names) · in Alpha \(alpha.map { space.nodes(in: $0.id).count } ?? -1)",
+                  "· in Beta \(beta.map { space.nodes(in: $0.id).count } ?? -1) · unfiled \(space.nodes(in: nil).count)",
+                  "· first node is in “\(space.category(of: node)?.name ?? "none")”")
+        }
+        state("start")
+        after(0.5) {
+            alpha = space.addCategory(named: "Alpha")
+            beta = space.addCategory(named: "Beta")
+        }
+        after(1.3) {
+            node.categoryID = alpha?.id
+            let created = space.addNode(in: beta?.id)
+            created.title = "Filed on creation"
+            print("cattest: colours differ =", Set(space.categories.map(\.colorIndex)).count == min(space.categories.count, Theme.spaceColors.count),
+                  "· new node went into Beta =", space.category(of: created)?.name == "Beta")
+        }
+        after(2.1) {
+            state("filed")
+            if let alpha { space.deleteCategory(alpha.id) }
+        }
+        after(2.9) {
+            state("Alpha deleted")
+            print("cattest: nodes survive the delete =", space.nodes.count == nodesBefore + 1)
+            _ = store.undo(in: space)
+            state("undo")
+        }
+        after(3.7) {
+            if let beta { space.updateCategory(beta.id) { $0.name = "Renamed" } }
+            if let beta { space.setCollapsed(true, category: beta.id) }
+        }
+        after(4.8) {
+            store.flushAll()
+            let saved = (try? Data(contentsOf: store.dataDir.appendingPathComponent("spaces/\(space.id.uuidString).json")))
+                .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+            let names = (saved?["categories"] as? [[String: Any]])?.compactMap { $0["name"] as? String } ?? []
+            let filed = (saved?["nodes"] as? [[String: Any]])?.filter { $0["categoryID"] != nil }.count ?? -1
+            print("cattest: on disk → categories \(names.dropFirst(base)) · nodes with a category \(filed) · folded \((saved?["collapsedCategories"] as? [Any])?.count ?? -1)")
+            let reloaded = Store().loggedInSpaces.first { $0.id == space.id }
+            print("cattest: reloaded → categories \(reloaded?.categories.count ?? -1) · first node still in “\(reloaded.flatMap { r in r.nodes.first { $0.id == node.id }.flatMap { r.category(of: $0)?.name } } ?? "none")” · was \(original == nil ? "unfiled" : "filed") at the start")
+        }
     }
 
     /// Draws a one-page fictional brief and returns where it was written.
@@ -477,18 +647,32 @@ enum Demo {
             let copy = node.file.map { store.fileURL(for: $0, in: space) }
             print("filetest: imported → nodes +\(space.nodes.count - nodesBefore) · files +\(stored() - filesBefore) · title “\(node.title)” · \(node.file?.summary ?? "-") · symbol \(node.symbol)")
             print("filetest: copy readable after the original was deleted =", copy.map { FileManager.default.isReadableFile(atPath: $0.path) } ?? false, "· opens as tab =", space.activeTab == node.id)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            func later(_ seconds: Double, _ work: @escaping () -> Void) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
+            }
+            // Notes are the node's own text: written, undone and saved like a page.
+            later(0.8) { node.blocks[0].data.runs = [TextRun(t: "Read before Friday", b: true)] }
+            later(1.6) {
+                print("filetest: notes written → “\(node.textPreview)” · words \(node.wordCount) · still a file =", node.isFile)
+                _ = store.undo(in: space)
+                print("filetest: undo notes → “\(node.textPreview)”")
+                _ = store.redo(in: space)
+                print("filetest: redo notes → “\(node.textPreview)”")
+            }
+            later(2.4) { space.deleteNode(node.id) }
+            later(3.2) {
+                print("filetest: node deleted → nodes +\(space.nodes.count - nodesBefore) · file kept for undo =", stored() - filesBefore == 1)
+                _ = store.undo(in: space)
+                print("filetest: undo → nodes +\(space.nodes.count - nodesBefore) · file node back =", space.node(node.id)?.isFile ?? false,
+                      "· notes back = “\(space.node(node.id)?.textPreview ?? "-")”")
+                store.flushAll()
+                let saved = (try? String(contentsOf: store.dataDir.appendingPathComponent("spaces/\(space.id.uuidString).json"), encoding: .utf8)) ?? ""
+                print("filetest: notes saved to disk =", saved.contains("Read before Friday"))
                 space.deleteNode(node.id)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                    print("filetest: node deleted → nodes +\(space.nodes.count - nodesBefore) · file kept for undo =", stored() - filesBefore == 1)
-                    _ = store.undo(in: space)
-                    print("filetest: undo → nodes +\(space.nodes.count - nodesBefore) · file node back =", space.node(node.id)?.isFile ?? false)
-                    space.deleteNode(node.id)
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                        store.logOut(space.id)   // history ends here, so the leftover copy goes too
-                        print("filetest: after sign-out leftover files =", stored() - filesBefore, "· other files untouched =", stored() == filesBefore)
-                    }
-                }
+            }
+            later(4.0) {
+                if let owner = store.owner(of: space.id) { store.logOut(owner.id) }   // history ends here, so the leftover copy goes too
+                print("filetest: after sign-out leftover files =", stored() - filesBefore, "· other files untouched =", stored() == filesBefore)
             }
         } catch {
             print("filetest: import failed →", error)

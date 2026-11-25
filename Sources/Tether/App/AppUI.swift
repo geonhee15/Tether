@@ -10,7 +10,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
 @MainActor
 @Observable
 final class AppUI {
-    enum Overlay: Equatable { case settings, spaceSettings, addAccount }
+    enum Overlay: Equatable { case settings, spaceSettings, account, addAccount }
 
     var overlay: Overlay?
     var settingsTab: SettingsTab = .general
@@ -22,6 +22,9 @@ final class AppUI {
     var demoInsertMenu = false
     /// Opens the login screen on "reset password" (used for screenshots).
     var demoResetPassword = false
+
+    /// Whether the notes column beside a file is hidden.
+    var fileNotesHidden = false
 
     /// A short confirmation shown in the footer ("Saved", "Undone"…), cleared on its own.
     var status: Status?

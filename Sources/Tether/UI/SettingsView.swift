@@ -126,6 +126,8 @@ struct SettingsView: View {
                 rowDivider
                 shortcut(L("Space home", "Space 홈"), "⇧⌘H")
                 rowDivider
+                shortcut(L("New Space", "새 Space"), "⇧⌘N")
+                rowDivider
                 shortcut(L("Undo · Redo (any edit in the Space)", "실행 취소 · 다시 실행 (Space의 모든 편집)"), "⌘Z  ⇧⌘Z")
                 rowDivider
                 shortcut(L("Save now", "지금 저장"), "⌘S")
@@ -265,10 +267,11 @@ struct SettingsView: View {
             group {
                 ForEach(Array(store.accounts.enumerated()), id: \.element.id) { index, account in
                     if index > 0 { rowDivider }
-                    let space = store.spaces[account.id]
-                    SettingsRow(title: space?.info.name ?? account.username,
-                                subtitle: "@\(account.username)" + (account.email.isEmpty ? "" : " · \(account.email)")) {
-                        if space != nil {
+                    let signedIn = store.session.loggedIn.contains(account.id)
+                    SettingsRow(title: account.username,
+                                subtitle: L("\(account.spaceIDs.count) of \(AppInfo.maxSpaces) Spaces", "Space \(account.spaceIDs.count)/\(AppInfo.maxSpaces)개")
+                                    + (account.email.isEmpty ? "" : " · \(account.email)")) {
+                        if signedIn {
                             Button(L("Sign Out", "로그아웃")) { withAnimation(Motion.spring) { store.logOut(account.id) } }
                                 .buttonStyle(SoftButtonStyle())
                         } else {

@@ -3,7 +3,7 @@ import Foundation
 import Observation
 
 enum AuthError: Error {
-    case emptyFields, usernameTaken, unknownUser, wrongPassword, limitReached, passwordMismatch
+    case emptyFields, usernameTaken, unknownUser, wrongPassword, limitReached, passwordMismatch, spaceLimitReached
 
     @MainActor var message: String {
         switch self {
@@ -12,12 +12,14 @@ enum AuthError: Error {
         case .unknownUser: return L("No account with that username.", "해당 유저네임의 계정이 없어요.")
         case .wrongPassword: return L("That password doesn't match.", "비밀번호가 일치하지 않아요.")
         case .passwordMismatch: return L("The two passwords don't match.", "두 비밀번호가 서로 달라요.")
+        case .spaceLimitReached: return L("An account can hold up to \(AppInfo.maxSpaces) Spaces.", "한 계정에는 Space를 최대 \(AppInfo.maxSpaces)개까지 만들 수 있어요.")
         case .limitReached: return L("You can keep up to \(AppInfo.maxAccounts) accounts.", "계정은 최대 \(AppInfo.maxAccounts)개까지 만들 수 있어요.")
         }
     }
 }
 
-/// Accounts, sessions and every signed-in Space, persisted as JSON under Application Support.
+/// Accounts, sessions and the Spaces of every signed-in account, persisted as JSON under
+/// Application Support. `spaces` is keyed by Space id; an account lists the ones it owns.
 /// Saving is driven by Observation: any change to a Space schedules a debounced write.
 @MainActor
 @Observable
@@ -61,16 +63,39 @@ final class Store {
         session.loggedIn = session.loggedIn.filter(known.contains)
         if let active = session.active, !session.loggedIn.contains(active) { session.active = session.loggedIn.first }
         if session.active == nil { session.active = session.loggedIn.first }
-        for id in session.loggedIn { loadSpace(id) }
+        for id in session.loggedIn { loadSpaces(of: id) }
     }
 
     // MARK: Lookups
 
-    var activeSpace: SpaceModel? { session.active.flatMap { spaces[$0] } }
-
-    var loggedInSpaces: [SpaceModel] { session.loggedIn.compactMap { spaces[$0] } }
-
     func account(_ id: UUID) -> Account? { accounts.first { $0.id == id } }
+
+    /// The account in front.
+    var activeAccount: Account? { session.active.flatMap(account) }
+
+    /// The Space on screen: the one the front account last had open.
+    var activeSpace: SpaceModel? {
+        guard let account = activeAccount else { return nil }
+        if let id = account.activeSpace, account.spaceIDs.contains(id), let space = spaces[id] { return space }
+        return spaces(of: account.id).first
+    }
+
+    /// An account's loaded Spaces, in rail order. Empty while the account is signed out.
+    func spaces(of accountID: UUID) -> [SpaceModel] {
+        account(accountID)?.spaceIDs.compactMap { spaces[$0] } ?? []
+    }
+
+    /// The front account's Spaces.
+    var activeSpaces: [SpaceModel] { session.active.map(spaces(of:)) ?? [] }
+
+    /// Every Space of every signed-in account.
+    var loggedInSpaces: [SpaceModel] { session.loggedIn.flatMap(spaces(of:)) }
+
+    func owner(of spaceID: UUID) -> Account? { accounts.first { $0.spaceIDs.contains(spaceID) } }
+
+    func canAddSpace(to accountID: UUID) -> Bool {
+        (account(accountID)?.spaceIDs.count ?? AppInfo.maxSpaces) < AppInfo.maxSpaces
+    }
 
     var canAddAccount: Bool { accounts.count < AppInfo.maxAccounts }
 
@@ -89,12 +114,15 @@ final class Store {
                               passwordSalt: salt, passwordHash: Self.hash(password, salt: salt))
         accounts.append(account)
         let info = SpaceInfo(name: name, colorIndex: (accounts.count - 1) % Theme.spaceColors.count)
-        let space = SpaceModel(id: account.id, snapshot: SpaceSnapshot(info: info))
-        spaces[account.id] = space
         session.loggedIn.append(account.id)
         session.active = account.id
-        persistAccounts()
-        histories[account.id] = SpaceHistory(space)
+        install(SpaceModel(id: account.id, snapshot: SpaceSnapshot(info: info)))
+    }
+
+    /// Starts tracking a Space that was just created and writes it out.
+    private func install(_ space: SpaceModel) {
+        spaces[space.id] = space
+        histories[space.id] = SpaceHistory(space)
         save(space)
         watch(space)
     }
@@ -106,7 +134,7 @@ final class Store {
         guard Self.hash(password, salt: account.passwordSalt) == account.passwordHash else { throw AuthError.wrongPassword }
         if !session.loggedIn.contains(account.id) {
             session.loggedIn.append(account.id)
-            loadSpace(account.id)
+            loadSpaces(of: account.id)
         }
         session.active = account.id
         persistAccounts()
@@ -128,6 +156,7 @@ final class Store {
         persistAccounts()
     }
 
+    /// Brings a signed-in account to the front, on the Space it last had open.
     func switchTo(_ id: UUID) {
         guard session.loggedIn.contains(id) else { return }
         session.active = id
@@ -135,25 +164,82 @@ final class Store {
     }
 
     func logOut(_ id: UUID) {
-        if let space = spaces[id] { flush(space, closing: true) }
-        spaces[id] = nil
-        histories[id] = nil
+        for spaceID in account(id)?.spaceIDs ?? [] {
+            if let space = spaces[spaceID] { flush(space, closing: true) }
+            spaces[spaceID] = nil
+            histories[spaceID] = nil
+        }
         session.loggedIn.removeAll { $0 == id }
         if session.active == id { session.active = session.loggedIn.first }
         persistAccounts()
     }
 
-    /// Removes the account and its Space file for good.
+    /// Removes the account and every one of its Spaces for good.
     func deleteAccount(_ id: UUID) {
-        saveTimers[id]?.invalidate()
-        saveTimers[id] = nil
-        spaces[id] = nil
-        histories[id] = nil
+        for spaceID in account(id)?.spaceIDs ?? [id] { erase(spaceID) }
         session.loggedIn.removeAll { $0 == id }
         if session.active == id { session.active = session.loggedIn.first }
         accounts.removeAll { $0.id == id }
-        try? FileManager.default.removeItem(at: spaceURL(id))
-        try? FileManager.default.removeItem(at: filesDirectory(for: id))
+        persistAccounts()
+    }
+
+    /// Forgets a Space and deletes what it kept on disk.
+    private func erase(_ spaceID: UUID) {
+        saveTimers[spaceID]?.invalidate()
+        saveTimers[spaceID] = nil
+        spaces[spaceID] = nil
+        histories[spaceID] = nil
+        try? FileManager.default.removeItem(at: spaceURL(spaceID))
+        try? FileManager.default.removeItem(at: filesDirectory(for: spaceID))
+    }
+
+    // MARK: Spaces
+
+    /// Adds an empty Space to a signed-in account and brings it to the front. It starts
+    /// unconfigured, so the setup screen comes up for it.
+    @discardableResult
+    func addSpace(to accountID: UUID) throws -> SpaceModel {
+        guard let index = accounts.firstIndex(where: { $0.id == accountID }), session.loggedIn.contains(accountID) else { throw AuthError.unknownUser }
+        guard accounts[index].spaceIDs.count < AppInfo.maxSpaces else { throw AuthError.spaceLimitReached }
+        let used = Set(spaces(of: accountID).map(\.info.colorIndex))
+        let color = Theme.spaceColors.indices.first { !used.contains($0) } ?? accounts[index].spaceIDs.count % Theme.spaceColors.count
+        let space = SpaceModel(id: UUID(), snapshot: SpaceSnapshot(info: SpaceInfo(name: "", colorIndex: color)))
+        accounts[index].spaceIDs.append(space.id)
+        accounts[index].activeSpace = space.id
+        session.active = accountID
+        install(space)
+        return space
+    }
+
+    /// Brings a Space (and the account that owns it) to the front.
+    func selectSpace(_ spaceID: UUID) {
+        guard spaces[spaceID] != nil, let index = accounts.firstIndex(where: { $0.spaceIDs.contains(spaceID) }) else { return }
+        accounts[index].activeSpace = spaceID
+        session.active = accounts[index].id
+        persistAccounts()
+    }
+
+    /// Removes one Space and everything in it for good. An account always keeps at least one,
+    /// so the last Space can only go with the account. False when nothing was deleted.
+    @discardableResult
+    func deleteSpace(_ spaceID: UUID) -> Bool {
+        guard let index = accounts.firstIndex(where: { $0.spaceIDs.contains(spaceID) }),
+              accounts[index].spaceIDs.count > 1, let position = accounts[index].spaceIDs.firstIndex(of: spaceID) else { return false }
+        accounts[index].spaceIDs.remove(at: position)
+        if accounts[index].activeSpace == spaceID || accounts[index].activeSpace == nil {
+            accounts[index].activeSpace = accounts[index].spaceIDs[min(position, accounts[index].spaceIDs.count - 1)]
+        }
+        erase(spaceID)
+        persistAccounts()
+        return true
+    }
+
+    /// Moves a Space up or down in its account's rail.
+    func moveSpace(_ spaceID: UUID, by offset: Int) {
+        guard let index = accounts.firstIndex(where: { $0.spaceIDs.contains(spaceID) }),
+              let position = accounts[index].spaceIDs.firstIndex(of: spaceID),
+              accounts[index].spaceIDs.indices.contains(position + offset) else { return }
+        accounts[index].spaceIDs.swapAt(position, position + offset)
         persistAccounts()
     }
 
@@ -189,13 +275,25 @@ final class Store {
         write(session, to: dataDir.appendingPathComponent("session.json"))
     }
 
-    private func loadSpace(_ id: UUID) {
-        guard spaces[id] == nil, let account = account(id) else { return }
-        let snapshot: SpaceSnapshot
-        if let data = try? Data(contentsOf: spaceURL(id)), let decoded = try? Self.decoder.decode(SpaceSnapshot.self, from: data) {
-            snapshot = decoded
-        } else {
-            snapshot = SpaceSnapshot(info: SpaceInfo(name: account.username))
+    private func loadSpaces(of accountID: UUID) {
+        guard let account = account(accountID) else { return }
+        for (index, id) in account.spaceIDs.enumerated() {
+            loadSpace(id, fallbackName: index == 0 ? account.username : "")
+        }
+    }
+
+    private func loadSpace(_ id: UUID, fallbackName: String) {
+        guard spaces[id] == nil else { return }
+        let url = spaceURL(id)
+        var snapshot = SpaceSnapshot(info: SpaceInfo(name: fallbackName))
+        if let data = try? Data(contentsOf: url) {
+            if let decoded = try? Self.decoder.decode(SpaceSnapshot.self, from: data) {
+                snapshot = decoded
+            } else {
+                // A file that can't be read is set aside before anything is saved in its place.
+                let aside = url.deletingPathExtension().appendingPathExtension("unreadable-\(Int(Date().timeIntervalSince1970)).json")
+                try? FileManager.default.copyItem(at: url, to: aside)
+            }
         }
         let space = SpaceModel(id: id, snapshot: snapshot)
         spaces[id] = space
